@@ -1,4 +1,4 @@
-#include "quickjs/quickjs.h"
+#include "quickjs.h"
 
 JSModuleDef *js_init_module_engines(JSContext *ctx, const char *module_name);
 

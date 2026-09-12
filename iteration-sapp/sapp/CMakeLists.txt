@@ -17,8 +17,7 @@ fips_files(engines/engines.c)
 
 fips_files(timers.c)
 
-# fips_files(soloud/src/c_api/soloud_c.cpp)
-sokol_shader(loadpng-sapp.glsl ${slang})
+fips_files(soloud/src/c_api/soloud_c.cpp)
 
 if(FIPS_IOS)
   fips_files("Launch Screen.storyboard")

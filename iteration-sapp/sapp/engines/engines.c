@@ -1,5 +1,5 @@
 
-#include "quickjs/quickjs.h"
+#include "quickjs.h"
 
 #include "engines.h"
 #include <math.h>
@@ -426,14 +426,9 @@ static JSValue js_engine_star_animation(JSContext *ctx, JSValueConst this_val,
   sprite_atom = JS_NewAtom(ctx, "Sprite");
   alpha_atom = JS_NewAtom(ctx, "alpha");
 
-  JSValue *actors_arr = JS_GetFastArray(ctx, actors);
   JSValue rects = JS_GetPropertyStr(ctx, type, "Rect");
   JSValue stars = JS_GetPropertyStr(ctx, type, "StarAnimation");
   JSValue sprites = JS_GetPropertyStr(ctx, type, "Sprite");
-
-  JSValue *rects_arr = JS_GetFastArray(ctx, rects);
-  JSValue *stars_arr = JS_GetFastArray(ctx, stars);
-  JSValue *sprites_arr = JS_GetFastArray(ctx, sprites);
 
   for (int i = 0; i < arrayLen; i++)
   {
@@ -452,9 +447,9 @@ static JSValue js_engine_star_animation(JSContext *ctx, JSValueConst this_val,
     JSValue StarAnimation = JS_GetProperty(ctx, actor, star_atom);
     JSValue Sprite = JS_GetProperty(ctx, actor, sprite_atom);*/
 
-    JSValue Rect = rects_arr[i];
-    JSValue StarAnimation = stars_arr[i];
-    JSValue Sprite = sprites_arr[i];
+    JSValue Rect = JS_GetPropertyUint32(ctx, rects, i);
+    JSValue StarAnimation = JS_GetPropertyUint32(ctx, stars, i);
+    JSValue Sprite = JS_GetPropertyUint32(ctx, sprites, i);
 
     JSPointData *star_anim = JS_GetOpaque2(ctx, StarAnimation, js_point_class_id);
     JSRectData *rect_data = JS_GetOpaque2(ctx, Rect, js_rect_class_id);
@@ -480,6 +475,10 @@ static JSValue js_engine_star_animation(JSContext *ctx, JSValueConst this_val,
       star_anim->z = dist;
     }
 
+    JS_FreeValue(ctx, Rect);
+    JS_FreeValue(ctx, StarAnimation);
+    JS_FreeValue(ctx, Sprite);
+
     // JS_SetPropertyStr(ctx, Rect, "x", JS_NewFloat64(ctx, rect_x));
     // JS_SetPropertyStr(ctx, Rect, "y", JS_NewFloat64(ctx, rect_y));
     // JS_SetPropertyStr(ctx, Rect, "scale", JS_NewFloat64(ctx, scale));
@@ -487,6 +486,11 @@ static JSValue js_engine_star_animation(JSContext *ctx, JSValueConst this_val,
     // JS_SetPropertyStr(ctx, StarAnimation, "z", JS_NewFloat64(ctx, star_z));
   }
 
+  JS_FreeValue(ctx, actors);
+  JS_FreeValue(ctx, jsLen);
+  JS_FreeValue(ctx, rects);
+  JS_FreeValue(ctx, stars);
+  JS_FreeValue(ctx, sprites);
   JS_FreeAtom(ctx, rect_atom);
   JS_FreeAtom(ctx, star_atom);
   JS_FreeAtom(ctx, sprite_atom);
@@ -553,21 +557,15 @@ static JSValue js_engine_sprite_update(JSContext *ctx, JSValueConst this_val,
 
   alpha_atom = JS_NewAtom(ctx, "alpha");
 
-  JSValue *actors_arr = JS_GetFastArray(ctx, actors);
-
   JSValue rects = JS_GetPropertyStr(ctx, type, "Rect");
   JSValue sprites = JS_GetPropertyStr(ctx, type, "Sprite");
 
   JSValue parentRects = JS_GetPropertyStr(ctx, type, "ParentRect");
 
-  JSValue *rects_arr = JS_GetFastArray(ctx, rects);
-  JSValue *sprites_arr = JS_GetFastArray(ctx, sprites);
-  // JSValue *parents_arr = JS_GetFastArray(ctx, parentRects);
-
   for (int i = 0; i < arrayLen; i++)
   {
-    JSValue Rect = rects_arr[i];
-    JSValue Sprite = sprites_arr[i];
+    JSValue Rect = JS_GetPropertyUint32(ctx, rects, i);
+    JSValue Sprite = JS_GetPropertyUint32(ctx, sprites, i);
 
     JSRectData *rect_data = JS_GetOpaque2(ctx, Rect, js_rect_class_id);
     JSSpriteData *sprite_data = JS_GetOpaque2(ctx, Sprite, js_sprite_class_id);
@@ -594,8 +592,16 @@ static JSValue js_engine_sprite_update(JSContext *ctx, JSValueConst this_val,
 
     engine_set_texture(sprite_data->texture);
     engine_draw_texture_clip(sprite_data->frameX, sprite_data->frameY, sprite_data->frameWidth, sprite_data->frameHeight, x, y, 0, 0, 0, rect_data->scale, sprite_data->alpha);
+
+    JS_FreeValue(ctx, Rect);
+    JS_FreeValue(ctx, Sprite);
   }
 
+  JS_FreeValue(ctx, actors);
+  JS_FreeValue(ctx, jsLen);
+  JS_FreeValue(ctx, rects);
+  JS_FreeValue(ctx, sprites);
+  JS_FreeValue(ctx, parentRects);
   JS_FreeAtom(ctx, rect_atom);
   JS_FreeAtom(ctx, sprite_atom);
   JS_FreeAtom(ctx, alpha_atom);

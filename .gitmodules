@@ -1,0 +1,33 @@
+[submodule "fips"]
+	path = fips
+	url = https://github.com/floooh/fips.git
+[submodule "fips-cimgui"]
+	path = fips-cimgui
+	url = https://github.com/fips-libs/fips-cimgui.git
+[submodule "fips-dawn"]
+	path = fips-dawn
+	url = https://github.com/fips-libs/fips-dawn.git
+[submodule "fips-glew"]
+	path = fips-glew
+	url = https://github.com/fips-libs/fips-glew.git
+[submodule "fips-glfw"]
+	path = fips-glfw
+	url = https://github.com/fips-libs/fips-glfw.git
+[submodule "fips-imgui"]
+	path = fips-imgui
+	url = https://github.com/fips-libs/fips-imgui.git
+[submodule "fips-nanovg"]
+	path = fips-nanovg
+	url = https://github.com/fungos/fips-nanovg.git
+[submodule "fips-soloud"]
+	path = fips-soloud
+	url = https://github.com/fips-libs/fips-soloud.git
+[submodule "fips-utils"]
+	path = fips-utils
+	url = https://github.com/fips-libs/fips-utils.git
+[submodule "sokol"]
+	path = sokol
+	url = https://github.com/floooh/sokol.git
+[submodule "sokol-tools-bin"]
+	path = sokol-tools-bin
+	url = https://github.com/floooh/sokol-tools-bin.git

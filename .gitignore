@@ -1,0 +1,28 @@
+# fips-generated SDKs, build trees, and deploy artifacts
+/fips-build/
+/fips-deploy/
+/fips-sdks/
+
+# CMake in-source build artifacts
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/compile_commands.json
+
+# Compiled outputs
+*.a
+*.o
+*.obj
+*.wasm
+*.apk
+*.exe
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editors and operating systems
+.DS_Store
+.vscode/
+.idea/
+*.swp

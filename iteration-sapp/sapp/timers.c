@@ -46,9 +46,9 @@ typedef sig_t sighandler_t;
 #include <stdatomic.h>
 #endif
 
-#include "quickjs/cutils.h"
-#include "quickjs/list.h"
-#include "quickjs/quickjs-libc.h"
+#include "cutils.h"
+#include "list.h"
+#include "quickjs-libc.h"
 
 /* TODO:
    - add socket calls

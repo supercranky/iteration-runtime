@@ -26,10 +26,10 @@
 
 #include <string.h>
 
-#include "quickjs/quickjs.h"
-#include "quickjs/quickjs-libc.h"
+#include "quickjs.h"
+#include "quickjs-libc.h"
 
-#include "quickjs/cutils.h"
+#include "cutils.h"
 #include "runtime.h"
 #include "soloud/soloud_c.h"
 
@@ -70,6 +70,8 @@ static struct
   sgl_pipeline pip;
   sg_bindings bind;
   sg_image textures[256];
+  sg_view texture_views[256];
+  sg_sampler sampler;
   image_sizes texture_sizes[256];
   uint8_t file_buffer[1024 * 1024];
   JSValue frame_callback;
@@ -778,14 +780,14 @@ static JSValue js_engine_set_texture(JSContext *ctx, JSValueConst this_val,
 
   state.current_texture = texture_id;
 
-  sgl_texture(state.textures[texture_id]);
+  sgl_texture(state.texture_views[texture_id], state.sampler);
 
   return JS_UNDEFINED;
 }
 
 void engine_set_texture(int texture)
 {
-  sgl_texture(state.textures[texture]);
+  sgl_texture(state.texture_views[texture], state.sampler);
 }
 
 static JSValue js_engine_load_text(JSContext *ctx, JSValueConst this_val,
@@ -1435,7 +1437,8 @@ static JSValue js_engine_set_clear_color(JSContext *ctx, JSValueConst this_val,
   JS_ToFloat64(ctx, &alpha, argv[3]);
 
   state.pass_action = (sg_pass_action){
-      .colors[0] = {.action = SG_ACTION_CLEAR, .value = {red, green, blue, alpha}}};
+      .colors[0] = {.load_action = SG_LOADACTION_CLEAR,
+                    .clear_value = {red, green, blue, alpha}}};
 
   return JS_UNDEFINED;
 }
@@ -1503,23 +1506,32 @@ static JSValue js_engine_graphics_polygon(JSContext *ctx, JSValueConst this_val,
   int arrayLen;
   JS_ToInt32(ctx, &arrayLen, jsLen);
 
-  JSValue *coordsArray = JS_GetFastArray(ctx, coords);
-  JSValue *startCoords = JS_GetFastArray(ctx, coordsArray[0]);
+  JSValue startPoint = JS_GetPropertyUint32(ctx, coords, 0);
+  JSValue startXValue = JS_GetPropertyUint32(ctx, startPoint, 0);
+  JSValue startYValue = JS_GetPropertyUint32(ctx, startPoint, 1);
 
   double x, y, startX, startY;
 
-  JS_ToFloat64(ctx, &startX, startCoords[0]);
-  JS_ToFloat64(ctx, &startY, startCoords[1]);
+  JS_ToFloat64(ctx, &startX, startXValue);
+  JS_ToFloat64(ctx, &startY, startYValue);
+  JS_FreeValue(ctx, startXValue);
+  JS_FreeValue(ctx, startYValue);
+  JS_FreeValue(ctx, startPoint);
   startX = convert_local_x_to_screen(startX);
   startY = convert_local_y_to_screen(startY);
 
   nvgMoveTo(state.vg, startX, startY);
   for (int i = 1; i < arrayLen; i++)
   {
-    JSValue *point = JS_GetFastArray(ctx, coordsArray[i]);
+    JSValue point = JS_GetPropertyUint32(ctx, coords, i);
+    JSValue xValue = JS_GetPropertyUint32(ctx, point, 0);
+    JSValue yValue = JS_GetPropertyUint32(ctx, point, 1);
 
-    JS_ToFloat64(ctx, &x, point[0]);
-    JS_ToFloat64(ctx, &y, point[1]);
+    JS_ToFloat64(ctx, &x, xValue);
+    JS_ToFloat64(ctx, &y, yValue);
+    JS_FreeValue(ctx, xValue);
+    JS_FreeValue(ctx, yValue);
+    JS_FreeValue(ctx, point);
     x = convert_local_x_to_screen(x);
     y = convert_local_y_to_screen(y);
 
@@ -1529,6 +1541,7 @@ static JSValue js_engine_graphics_polygon(JSContext *ctx, JSValueConst this_val,
   }
 
   nvgLineTo(state.vg, startX, startY);
+  JS_FreeValue(ctx, jsLen);
 
   return JS_UNDEFINED;
 }
@@ -1778,7 +1791,9 @@ static JSValue js_engine_flush_rendering(JSContext *ctx, JSValueConst this_val,
 
   sgl_enable_texture();
 
-  sg_begin_default_pass(&state.pass_action_no_clear, sapp_width(), sapp_height());
+  sg_begin_pass(&(sg_pass){
+      .action = state.pass_action_no_clear,
+      .swapchain = sglue_swapchain()});
   return JS_UNDEFINED;
 }
 
@@ -1913,16 +1928,13 @@ static void fetch_engine_load_texture_callback(const sfetch_response_t *response
       sg_init_image(state.textures[state.loaded_textures], &(sg_image_desc){
                                                                .width = png_width,
                                                                .height = png_height,
-                                                               .wrap_u = SG_WRAP_CLAMP_TO_BORDER,
-                                                               .wrap_w = SG_WRAP_CLAMP_TO_BORDER,
-                                                               .wrap_v = SG_WRAP_CLAMP_TO_BORDER,
                                                                .pixel_format = SG_PIXELFORMAT_RGBA8,
-                                                               .min_filter = SG_FILTER_LINEAR,
-                                                               .mag_filter = SG_FILTER_LINEAR,
-                                                               .data.subimage[0][0] = {
+                                                               .data.mip_levels[0] = {
                                                                    .ptr = pixels,
                                                                    .size = png_width * png_height * 4,
                                                                }});
+      state.texture_views[state.loaded_textures] = sg_make_view(&(sg_view_desc){
+          .texture.image = state.textures[state.loaded_textures]});
       SOKOL_LOG("init done");
 
       stbi_image_free(pixels);
@@ -2198,7 +2210,9 @@ void engine_frame()
 
   sgl_enable_texture();
 
-  sg_begin_default_pass(&state.pass_action, sapp_width(), sapp_height());
+  sg_begin_pass(&(sg_pass){
+      .action = state.pass_action,
+      .swapchain = sglue_swapchain()});
 
   if (JS_IsFunction(state.ctx, engine_get_frame_callback()))
   {
@@ -2250,10 +2264,18 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
   state.soloud = soloud;
 
   state.pass_action = (sg_pass_action){
-      .colors[0] = {.action = SG_ACTION_CLEAR, .value = {0.125f, 0.25f, 0.35f, 1.0f}}};
+      .colors[0] = {.load_action = SG_LOADACTION_CLEAR,
+                    .clear_value = {0.125f, 0.25f, 0.35f, 1.0f}}};
 
   state.pass_action_no_clear = (sg_pass_action){
-      .colors[0] = {.action = SG_ACTION_DONTCARE, .value = {0.125f, 0.25f, 0.35f, 1.0f}}};
+      .colors[0] = {.load_action = SG_LOADACTION_DONTCARE}};
+
+  state.sampler = sg_make_sampler(&(sg_sampler_desc){
+      .min_filter = SG_FILTER_LINEAR,
+      .mag_filter = SG_FILTER_LINEAR,
+      .wrap_u = SG_WRAP_CLAMP_TO_BORDER,
+      .wrap_v = SG_WRAP_CLAMP_TO_BORDER,
+      .wrap_w = SG_WRAP_CLAMP_TO_BORDER});
 
   for (int i = 0; i < 256; i++)
   {

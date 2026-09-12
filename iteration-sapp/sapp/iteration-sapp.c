@@ -20,7 +20,6 @@
 #include "sokol_gl.h"
 #include "stb/stb_image.h"
 #include "dbgui/dbgui.h"
-#include "loadpng-sapp.glsl.h"
 #include <string.h>
 #include "util/fileutil.h"
 
@@ -28,11 +27,12 @@
 
 #include "engines/engines.h"
 
-#include "quickjs/quickjs.h"
-#include "quickjs/quickjs-libc.h"
-#include "quickjs/cutils.h"
+#include "quickjs.h"
+#include "quickjs-libc.h"
+#include "cutils.h"
 
 #include "runtime.h"
+#include "timers.h"
 
 #if defined(__ANDROID__)
 #include <android/native_activity.h>
@@ -136,7 +136,7 @@ static void init(void)
 
   /* setup sokol-gfx and the optional debug-ui*/
   sg_setup(&(sg_desc){
-      .context = sapp_sgcontext()});
+      .environment = sglue_environment()});
   __dbgui_setup(sapp_sample_count());
 
   /* setup sokol-fetch with the minimal "resource limits" */
@@ -165,7 +165,8 @@ static void init(void)
 
   /* pass action for clearing the framebuffer to some color */
   state.pass_action = (sg_pass_action){
-      .colors[0] = {.action = SG_ACTION_CLEAR, .value = {0.125f, 0.25f, 0.35f, 1.0f}}};
+      .colors[0] = {.load_action = SG_LOADACTION_CLEAR,
+                    .clear_value = {0.125f, 0.25f, 0.35f, 1.0f}}};
 
   /* Allocate an image handle, but don't actually initialize the image yet,
        this happens later when the asynchronous file load has finished.
@@ -211,7 +212,8 @@ static void init(void)
 
   state.ctx = JS_NewContext(runtime);
 
-  JS_SetModuleLoaderFunc(runtime, NULL, js_module_loader, NULL);
+  JS_SetModuleLoaderFunc2(runtime, NULL, js_module_loader,
+                          js_module_check_attributes, NULL);
 
   JSContext *ctx = state.ctx;
 
@@ -258,6 +260,7 @@ static void init(void)
 /* The fetch-callback is called by sokol_fetch.h when the data is loaded,
    or when an error has occurred.
 */
+#if 0
 static void fetch_callback(const sfetch_response_t *response)
 {
   if (response->fetched)
@@ -301,6 +304,7 @@ static void fetch_callback(const sfetch_response_t *response)
         .colors[0] = {.action = SG_ACTION_CLEAR, .value = {1.0f, 0.0f, 0.0f, 1.0f}}};
   }
 }
+#endif
 
 static void fetch_javascript_callback(const sfetch_response_t *response)
 {
@@ -328,6 +332,7 @@ static void fetch_javascript_callback(const sfetch_response_t *response)
   }
 }
 
+#if 0
 static void draw_quad(void)
 {
   static float angle_deg = 0.0f;
@@ -347,6 +352,7 @@ static void draw_quad(void)
   sgl_v2f_t2f(-0.5f, 0.5f, 1, 1);
   sgl_end();
 }
+#endif
 
 // js_execute_jobs to enable stuff like promises and setTimeout
 
@@ -468,7 +474,6 @@ sapp_desc sokol_main(int argc, char *argv[])
       .height = 600,
       .fullscreen = true,
       .sample_count = 4,
-      .gl_force_gles2 = true,
       .high_dpi = false,
       .window_title = "ITERATION",
   };
