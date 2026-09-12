@@ -1,0 +1,26 @@
+---
+options:
+    ios:
+        dst_dir: $TARGET_NAME.app
+
+files:
+    [
+        "blackcastle.ttf",
+        "inter.ttf",
+        "computerfont.ttf",
+        "baboon2.png",
+        "thing.png",
+        "index.js",
+        "module.js",
+        "slug.png",
+        "star.png",
+        "screen1.png",
+        "screen2.png",
+        "small-line.png",
+        "hey.wav",
+        "hey.mp3",
+        "roboto-bold.ttf",
+        "sprite.json",
+        "sprite.png",
+        "tiles.png",
+    ]

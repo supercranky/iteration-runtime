@@ -1,0 +1,7 @@
+
+
+med loop i c 2150
+utan loop i c 
+med opaque grej 1800
+med opaque rect 1330
+atom access: 700

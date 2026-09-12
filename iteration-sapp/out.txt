@@ -1,0 +1,404 @@
+[1/19] sources.
+[2/14] cd /Users/andershammarnew/Documents/Lokalt/Iteration/iteration-sapp && /usr/bin/python /Users/andershammarnew/Documents/Lokalt/Iteration/fips-build/iteration-sapp/sapp-webgl2-emsc-ninja-release/fips-gen.py /Users/andershammarnew/Documents/Lokalt/Iteration/fips-build/iteration-sapp/sapp-webgl2-emsc-ninja-release/fips_codegen.yml
+[3/14] Linking C static library libs/stb/libstb.a
+[4/14] Linking C static library libs/sokol/libsokol-memtrack.a
+[5/14] Building C object sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj
+FAILED: sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj 
+/Users/andershammarnew/Documents/Lokalt/Iteration/fips-sdks/emsdk/upstream/emscripten/emcc -DCONFIG_VERSION=\"2020-01-19\" -DSOKOL_GLES3 -DSOKOL_NO_DEPRECATED -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-cimgui -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-glfw/glfw/include -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-imgui/imgui -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-libmodplug/libmodplug/src -I/Users/andershammarnew/Documents/Lokalt/Iteration/sokol -I/Users/andershammarnew/Documents/Lokalt/Iteration/sokol/util -I/Users/andershammarnew/Documents/Lokalt/Iteration/iteration-sapp/libs -Isapp/quickjs/sources/quickjs-2020-01-19 -s DISABLE_EXCEPTION_CATCHING=1 -fstrict-aliasing -Wall -Wextra -Wno-multichar -Wno-unknown-pragmas -Wno-ignored-qualifiers -Wno-long-long -Wno-overloaded-virtual -Wno-deprecated-writable-strings -Wno-unused-volatile-lvalue -Wno-warn-absolute-paths -Wno-expansion-to-defined -Wno-missing-field-initializers -O3  -flto -s ASSERTIONS=0 -DNDEBUG -std=gnu99 -MD -MT sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj -MF sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj.d -o sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj -c sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c
+In file included from sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:55:
+In file included from sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.h:30:
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:159:50: warning: unused parameter 'ctx' [-Wunused-parameter]
+static inline JSValue __JS_NewFloat64(JSContext *ctx, double d)
+                                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:496:54: warning: unused parameter 'ctx' [-Wunused-parameter]
+static js_force_inline JSValue JS_NewBool(JSContext *ctx, JS_BOOL val)
+                                                     ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:501:55: warning: unused parameter 'ctx' [-Wunused-parameter]
+static js_force_inline JSValue JS_NewInt32(JSContext *ctx, int32_t val)
+                                                      ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:506:61: warning: unused parameter 'ctx' [-Wunused-parameter]
+static js_force_inline JSValue JS_NewCatchOffset(JSContext *ctx, int32_t val)
+                                                            ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:542:46: warning: unused parameter 'ctx' [-Wunused-parameter]
+static inline JS_BOOL JS_IsBigInt(JSContext *ctx, JSValueConst v)
+                                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:633:46: warning: unused parameter 'ctx' [-Wunused-parameter]
+static inline JSValue JS_DupValue(JSContext *ctx, JSValueConst v)
+                                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs.h:642:48: warning: unused parameter 'rt' [-Wunused-parameter]
+static inline JSValue JS_DupValueRT(JSRuntime *rt, JSValueConst v)
+                                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:348:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_loadScript(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:349:34: warning: unused parameter 'argc' [-Wunused-parameter]
+                             int argc, JSValueConst *argv)
+                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:488:62: warning: unused parameter 'opaque' [-Wunused-parameter]
+                              const char *module_name, void *opaque)
+                                                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:521:57: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_exit(JSContext *ctx, JSValueConst this_val,
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:522:32: warning: unused parameter 'argc' [-Wunused-parameter]
+                           int argc, JSValueConst *argv)
+                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:531:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_getenv(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:532:32: warning: unused parameter 'argc' [-Wunused-parameter]
+                           int argc, JSValueConst *argv)
+                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:546:55: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_gc(JSContext *ctx, JSValueConst this_val,
+                                                      ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:547:30: warning: unused parameter 'argc' [-Wunused-parameter]
+                         int argc, JSValueConst *argv)
+                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:547:50: warning: unused parameter 'argv' [-Wunused-parameter]
+                         int argc, JSValueConst *argv)
+                                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:553:41: warning: unused parameter 'rt' [-Wunused-parameter]
+static int interrupt_handler(JSRuntime *rt, void *opaque)
+                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:553:51: warning: unused parameter 'opaque' [-Wunused-parameter]
+static int interrupt_handler(JSRuntime *rt, void *opaque)
+                                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:573:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_evalScript(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:650:70: warning: unused parameter 'new_target' [-Wunused-parameter]
+static JSValue js_std_error_constructor(JSContext *ctx, JSValueConst new_target,
+                                                                     ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:651:45: warning: unused parameter 'argc' [-Wunused-parameter]
+                                        int argc, JSValueConst *argv)
+                                            ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:659:67: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_error_strerror(JSContext *ctx, JSValueConst this_val,
+                                                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:660:42: warning: unused parameter 'argc' [-Wunused-parameter]
+                                     int argc, JSValueConst *argv)
+                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:698:57: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_open(JSContext *ctx, JSValueConst this_val,
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:699:32: warning: unused parameter 'argc' [-Wunused-parameter]
+                           int argc, JSValueConst *argv)
+                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:727:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_popen(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:728:33: warning: unused parameter 'argc' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:756:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_fdopen(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:757:34: warning: unused parameter 'argc' [-Wunused-parameter]
+                             int argc, JSValueConst *argv)
+                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:783:60: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_tmpfile(JSContext *ctx, JSValueConst this_val,
+                                                           ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:784:35: warning: unused parameter 'argc' [-Wunused-parameter]
+                              int argc, JSValueConst *argv)
+                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:784:55: warning: unused parameter 'argv' [-Wunused-parameter]
+                              int argc, JSValueConst *argv)
+                                                      ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:793:60: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_sprintf(JSContext *ctx, JSValueConst this_val,
+                                                           ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:799:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_printf(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:843:38: warning: unused parameter 'argc' [-Wunused-parameter]
+                                 int argc, JSValueConst *argv)
+                                     ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:843:58: warning: unused parameter 'argv' [-Wunused-parameter]
+                                 int argc, JSValueConst *argv)
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:869:38: warning: unused parameter 'argc' [-Wunused-parameter]
+                                 int argc, JSValueConst *argv)
+                                     ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:869:58: warning: unused parameter 'argv' [-Wunused-parameter]
+                                 int argc, JSValueConst *argv)
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:879:37: warning: unused parameter 'argc' [-Wunused-parameter]
+                                int argc, JSValueConst *argv)
+                                    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:879:57: warning: unused parameter 'argv' [-Wunused-parameter]
+                                int argc, JSValueConst *argv)
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:894:37: warning: unused parameter 'argc' [-Wunused-parameter]
+                                int argc, JSValueConst *argv)
+                                    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:916:36: warning: unused parameter 'argc' [-Wunused-parameter]
+                               int argc, JSValueConst *argv)
+                                   ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:916:56: warning: unused parameter 'argv' [-Wunused-parameter]
+                               int argc, JSValueConst *argv)
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:925:39: warning: unused parameter 'argc' [-Wunused-parameter]
+                                  int argc, JSValueConst *argv)
+                                      ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:925:59: warning: unused parameter 'argv' [-Wunused-parameter]
+                                  int argc, JSValueConst *argv)
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:934:43: warning: unused parameter 'argc' [-Wunused-parameter]
+                                      int argc, JSValueConst *argv, int magic)
+                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:961:40: warning: unused parameter 'argc' [-Wunused-parameter]
+                                   int argc, JSValueConst *argv)
+                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:961:60: warning: unused parameter 'argv' [-Wunused-parameter]
+                                   int argc, JSValueConst *argv)
+                                                           ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1039:40: warning: unused parameter 'argc' [-Wunused-parameter]
+                                   int argc, JSValueConst *argv)
+                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1039:60: warning: unused parameter 'argv' [-Wunused-parameter]
+                                   int argc, JSValueConst *argv)
+                                                           ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1048:40: warning: unused parameter 'argc' [-Wunused-parameter]
+                                   int argc, JSValueConst *argv)
+                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1076:23: warning: comparison of integers of different signs: 'long' and 'unsigned long' [-Wsign-compare]
+        if ((p - buf) < buf_size - 1)
+             ~~~~~~~  ^ ~~~~~~~~~~~~
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1099:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_std_urlGet(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1360:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_open(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1390:57: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_close(JSContext *ctx, JSValueConst this_val,
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1391:32: warning: unused parameter 'argc' [-Wunused-parameter]
+                           int argc, JSValueConst *argv)
+                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1400:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_seek(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1401:31: warning: unused parameter 'argc' [-Wunused-parameter]
+                          int argc, JSValueConst *argv)
+                              ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1416:62: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_read_write(JSContext *ctx, JSValueConst this_val,
+                                                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1417:43: warning: unused parameter 'argc' [-Wunused-parameter]
+                                      int argc, JSValueConst *argv, int magic)
+                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1443:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_isatty(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1444:33: warning: unused parameter 'argc' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1489:65: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_ttyGetWinSize(JSContext *ctx, JSValueConst this_val,
+                                                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1490:40: warning: unused parameter 'argc' [-Wunused-parameter]
+                                   int argc, JSValueConst *argv)
+                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1519:61: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_ttySetRaw(JSContext *ctx, JSValueConst this_val,
+                                                            ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1520:36: warning: unused parameter 'argc' [-Wunused-parameter]
+                               int argc, JSValueConst *argv)
+                                   ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1549:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_remove(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1550:34: warning: unused parameter 'argc' [-Wunused-parameter]
+                             int argc, JSValueConst *argv)
+                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1563:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_rename(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1564:33: warning: unused parameter 'argc' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1605:66: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_setReadHandler(JSContext *ctx, JSValueConst this_val,
+                                                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1606:41: warning: unused parameter 'argc' [-Wunused-parameter]
+                                    int argc, JSValueConst *argv, int magic)
+                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1679:5: error: use of undeclared identifier 'sighandler_t'
+    sighandler_t handler;
+    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1693:13: error: use of undeclared identifier 'handler'
+            handler = SIG_DFL;
+            ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1695:13: error: use of undeclared identifier 'handler'
+            handler = SIG_IGN;
+            ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1696:25: error: use of undeclared identifier 'handler'; did you mean 'rand_r'?
+        signal(sig_num, handler);
+                        ^~~~~~~
+                        rand_r
+/Users/andershammarnew/Documents/Lokalt/Iteration/fips-sdks/emsdk/upstream/emscripten/system/include/libc/stdlib.h:106:5: note: 'rand_r' declared here
+int rand_r (unsigned *);
+    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1673:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_signal(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1674:33: warning: unused parameter 'argc' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1732:37: warning: unused parameter 'rt' [-Wunused-parameter]
+static void unlink_timer(JSRuntime *rt, JSOSTimer *th)
+                                    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1767:62: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_setTimeout(JSContext *ctx, JSValueConst this_val,
+                                                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1768:37: warning: unused parameter 'argc' [-Wunused-parameter]
+                                int argc, JSValueConst *argv)
+                                    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1796:64: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_clearTimeout(JSContext *ctx, JSValueConst this_val,
+                                                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:1797:39: warning: unused parameter 'argc' [-Wunused-parameter]
+                                  int argc, JSValueConst *argv)
+                                      ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2013:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_getcwd(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2014:33: warning: unused parameter 'argc' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2014:53: warning: unused parameter 'argv' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                                    ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2030:57: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_chdir(JSContext *ctx, JSValueConst this_val,
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2031:32: warning: unused parameter 'argc' [-Wunused-parameter]
+                           int argc, JSValueConst *argv)
+                               ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2045:60: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_realpath(JSContext *ctx, JSValueConst this_val,
+                                                           ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2046:35: warning: unused parameter 'argc' [-Wunused-parameter]
+                              int argc, JSValueConst *argv)
+                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2066:57: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_mkdir(JSContext *ctx, JSValueConst this_val,
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2092:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_stat(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2093:31: warning: unused parameter 'argc' [-Wunused-parameter]
+                          int argc, JSValueConst *argv, int is_lstat)
+                              ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2168:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_symlink(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2169:35: warning: unused parameter 'argc' [-Wunused-parameter]
+                              int argc, JSValueConst *argv)
+                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2189:60: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_readlink(JSContext *ctx, JSValueConst this_val,
+                                                           ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2190:35: warning: unused parameter 'argc' [-Wunused-parameter]
+                              int argc, JSValueConst *argv)
+                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2213:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_readdir(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2214:34: warning: unused parameter 'argc' [-Wunused-parameter]
+                             int argc, JSValueConst *argv)
+                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2261:58: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_utimes(JSContext *ctx, JSValueConst this_val,
+                                                         ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2262:33: warning: unused parameter 'argc' [-Wunused-parameter]
+                            int argc, JSValueConst *argv)
+                                ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2284:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2381:28: warning: comparison of integers of different signs: 'int' and 'uint32_t' (aka 'unsigned int') [-Wsign-compare]
+            if (std_fds[i] != i) {
+                ~~~~~~~~~~ ^  ~
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2387:22: warning: comparison of integers of different signs: 'uint32_t' (aka 'unsigned int') and 'int' [-Wsign-compare]
+        for(i = 3; i < fd_max; i++)
+                   ~ ^ ~~~~~~
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2432:59: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_waitpid(JSContext *ctx, JSValueConst this_val,
+                                                          ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2433:34: warning: unused parameter 'argc' [-Wunused-parameter]
+                             int argc, JSValueConst *argv)
+                                 ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2460:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_pipe(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2461:31: warning: unused parameter 'argc' [-Wunused-parameter]
+                          int argc, JSValueConst *argv)
+                              ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2461:51: warning: unused parameter 'argv' [-Wunused-parameter]
+                          int argc, JSValueConst *argv)
+                                                  ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2480:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_kill(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2481:31: warning: unused parameter 'argc' [-Wunused-parameter]
+                          int argc, JSValueConst *argv)
+                              ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2494:57: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_sleep(JSContext *ctx, JSValueConst this_val,
+                                                        ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2495:31: warning: unused parameter 'argc' [-Wunused-parameter]
+                          int argc, JSValueConst *argv)
+                              ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2510:55: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_dup(JSContext *ctx, JSValueConst this_val,
+                                                      ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2511:30: warning: unused parameter 'argc' [-Wunused-parameter]
+                         int argc, JSValueConst *argv)
+                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2522:56: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_os_dup2(JSContext *ctx, JSValueConst this_val,
+                                                       ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2523:30: warning: unused parameter 'argc' [-Wunused-parameter]
+                         int argc, JSValueConst *argv)
+                             ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2653:54: warning: unused parameter 'this_val' [-Wunused-parameter]
+static JSValue js_print(JSContext *ctx, JSValueConst this_val,
+                                                     ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2759:68: warning: unused parameter 'promise' [-Wunused-parameter]
+void js_std_promise_rejection_tracker(JSContext *ctx, JSValueConst promise,
+                                                                   ^
+sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c:2761:62: warning: unused parameter 'opaque' [-Wunused-parameter]
+                                      BOOL is_handled, void *opaque)
+                                                             ^
+117 warnings and 4 errors generated.
+emcc: error: '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-sdks/emsdk/upstream/bin/clang -DEMSCRIPTEN -fignore-exceptions -flto=full -Xclang -isystem/Users/andershammarnew/Documents/Lokalt/Iteration/fips-sdks/emsdk/upstream/emscripten/system/include/SDL -target wasm32-unknown-emscripten -D__EMSCRIPTEN_major__=2 -D__EMSCRIPTEN_minor__=0 -D__EMSCRIPTEN_tiny__=11 -D_LIBCPP_ABI_VERSION=2 -Dunix -D__unix -D__unix__ -Werror=implicit-function-declaration --sysroot=/Users/andershammarnew/Documents/Lokalt/Iteration/fips-sdks/emsdk/upstream/emscripten/system -Xclang -isystem/Users/andershammarnew/Documents/Lokalt/Iteration/fips-sdks/emsdk/upstream/emscripten/cache/wasm-lto/include -Xclang -iwithsysroot/include/compat -Xclang -iwithsysroot/include/libc -Xclang -iwithsysroot/lib/libc/musl/arch/emscripten -Xclang -iwithsysroot/local/include -Xclang -iwithsysroot/include/SSE -Xclang -iwithsysroot/include/neon -Xclang -iwithsysroot/lib/compiler-rt/include -Xclang -iwithsysroot/lib/libunwind/include -DCONFIG_VERSION="2020-01-19" -DSOKOL_GLES3 -DSOKOL_NO_DEPRECATED -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-cimgui -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-glfw/glfw/include -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-imgui/imgui -I/Users/andershammarnew/Documents/Lokalt/Iteration/fips-libmodplug/libmodplug/src -I/Users/andershammarnew/Documents/Lokalt/Iteration/sokol -I/Users/andershammarnew/Documents/Lokalt/Iteration/sokol/util -I/Users/andershammarnew/Documents/Lokalt/Iteration/iteration-sapp/libs -Isapp/quickjs/sources/quickjs-2020-01-19 -fstrict-aliasing -Wall -Wextra -Wno-multichar -Wno-unknown-pragmas -Wno-ignored-qualifiers -Wno-long-long -Wno-overloaded-virtual -Wno-deprecated-writable-strings -Wno-unused-volatile-lvalue -Wno-expansion-to-defined -Wno-missing-field-initializers -O3 -flto -DNDEBUG -std=gnu99 -MD -MT sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj -MF sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj.d -o sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj -c sapp/quickjs/sources/quickjs-2020-01-19/quickjs-libc.c -c -o sapp/quickjs/CMakeFiles/quickjs.dir/sources/quickjs-2020-01-19/quickjs-libc.c.obj' failed (1)
+[6/14] Linking CXX static library libs/basisu/libbasisu.a
+[7/14] Building C object tests/CMakeFiles/sokol-test.dir/sokol-fetch-test.c.obj
+[8/14] Building C object tests/CMakeFiles/sokol-test.dir/sokol-test.c.obj
+[9/14] Building C object tests/CMakeFiles/sokol-test.dir/sokol-shape-test.c.obj
+[10/14] Building C object tests/CMakeFiles/sokol-test.dir/sokol-debugtext-test.c.obj
+[11/14] Linking CXX executable /Users/andershammarnew/Documents/Lokalt/Iteration/fips-deploy/iteration-sapp/sapp-webgl2-emsc-ninja-release/cpp-compile-test.html
+ninja: build stopped: subcommand failed.
+[1;33m=== dependency: 'sokol-tools-bin':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/sokol-tools-bin' exists
+[1;33m=== dependency: 'fips-glfw':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-glfw' exists
+[1;33m=== dependency: 'fips-libmodplug':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-libmodplug' exists
+[1;33m=== dependency: 'fips-utils':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-utils' exists
+[1;33m=== dependency: 'fips-cimgui':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-cimgui' exists
+[1;33m=== dependency: 'sokol':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/sokol' exists
+[1;33m=== dependency: 'fips-imgui':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-imgui' exists
+[1;33m=== dependency: 'fips-dawn':[0;0m
+dir '/Users/andershammarnew/Documents/Lokalt/Iteration/fips-dawn' exists
+[1;33m=== building: sapp-webgl2-emsc-ninja-release[0;0m
+ninja -j 10  all
+[1;31m[ERROR][0;0m Failed to build config 'sapp-webgl2-emsc-ninja-release' of project 'iteration-sapp'

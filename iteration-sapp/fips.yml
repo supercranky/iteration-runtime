@@ -1,0 +1,25 @@
+#
+# sokol-samples
+#
+---
+policies:
+    no_auto_import: true
+imports:
+    sokol:
+        git: https://github.com/floooh/sokol
+    sokol-tools-bin:
+        git: https://github.com/floooh/sokol-tools-bin
+    fips-glfw:
+        git: https://github.com/fips-libs/fips-glfw
+    fips-cimgui:
+        git: https://github.com/fips-libs/fips-cimgui.git
+    fips-imgui:
+        git: https://github.com/fips-libs/fips-imgui.git
+    fips-utils:
+        git: https://github.com/fips-libs/fips-utils
+    fips-dawn:
+        git: https://github.com/fips-libs/fips-dawn
+    fips-soloud:
+        git: https://github.com/fips-libs/fips-soloud
+    fips-nanovg:
+        git: https://github.com/fungos/fips-nanovg
