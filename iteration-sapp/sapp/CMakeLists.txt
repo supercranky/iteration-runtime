@@ -14,6 +14,7 @@ fips_files(iteration-sapp.c)
 
 fips_files(runtime.c)
 fips_files(engines/engines.c)
+fips_files(engines/visibility.c engines/visibility.h)
 
 fips_files(timers.c)
 
