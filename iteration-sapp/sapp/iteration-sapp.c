@@ -474,6 +474,8 @@ sapp_desc sokol_main(int argc, char *argv[])
       .height = 600,
       .fullscreen = true,
       .sample_count = 4,
+      // NanoVG uses stencil winding for concave paths and light-mask holes.
+      .depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL,
       .high_dpi = false,
       .window_title = "ITERATION",
   };

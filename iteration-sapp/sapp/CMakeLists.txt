@@ -44,3 +44,7 @@ file(
 fips_deps(sokol fileutil quickjs nanovg soloud)
 
 fips_end_app()
+
+if(FIPS_IOS)
+  target_link_libraries(iteration-sapp "-framework AVFoundation")
+endif()
