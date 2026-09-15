@@ -1,6 +1,7 @@
 #include "visibility.h"
 
 #include "nanovg.h"
+#include "sokol_app.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -14,6 +15,8 @@ static struct
   visibility_transform_fn scale;
   visibility_transform_fn translate_x;
   visibility_transform_fn translate_y;
+  double torch_time;
+  uint64_t torch_frame;
 } visibility_state;
 
 void visibility_init(NVGcontext *vg,
@@ -34,10 +37,17 @@ void visibility_init(NVGcontext *vg,
 #define VISIBILITY_MAX_MAPS 256
 #define VISIBILITY_TILE_SIZE 32.0
 #define VISIBILITY_RAY_EPSILON 0.002
-#define VISIBILITY_SHADOW_OPACITY 0.65f
+#define VISIBILITY_SHADOW_OPACITY 0.60f
 #define VISIBILITY_FALLOFF_OPACITY 0.9f
-#define VISIBILITY_FALLOFF_INNER_RADIUS 80.0f
+#define VISIBILITY_FALLOFF_INNER_RADIUS 100.0f
 #define VISIBILITY_FALLOFF_OUTER_RADIUS 600.0f
+#define VISIBILITY_TORCH_MOTION_X 1.5
+#define VISIBILITY_TORCH_MOTION_Y 1.0
+#define VISIBILITY_TORCH_NOISE_SPEED_X 5.0
+#define VISIBILITY_TORCH_NOISE_SPEED_Y 4.3
+#define VISIBILITY_TORCH_STRENGTH_SPEED 6.2
+#define VISIBILITY_TORCH_RADIUS_VARIATION 0.05
+#define VISIBILITY_TORCH_OPACITY_VARIATION 0.025
 #define VISIBILITY_SAMPLE_COUNT 5
 
 typedef struct
@@ -89,6 +99,36 @@ static int visibility_angle_compare(const void *left, const void *right)
 static double visibility_normalize_angle(double angle)
 {
   return atan2(sin(angle), cos(angle));
+}
+
+static uint32_t visibility_noise_hash(uint32_t value)
+{
+  value ^= value >> 16;
+  value *= 0x7feb352dU;
+  value ^= value >> 15;
+  value *= 0x846ca68bU;
+  value ^= value >> 16;
+  return value;
+}
+
+static double visibility_noise_fade(double value)
+{
+  return value * value * value * (value * (value * 6.0 - 15.0) + 10.0);
+}
+
+static double visibility_perlin_noise(double position, uint32_t seed)
+{
+  int lattice = (int)floor(position);
+  double fraction = position - lattice;
+  double left_gradient = (visibility_noise_hash((uint32_t)lattice + seed) & 1U)
+                             ? fraction
+                             : -fraction;
+  double right_distance = fraction - 1.0;
+  double right_gradient = (visibility_noise_hash((uint32_t)(lattice + 1) + seed) & 1U)
+                              ? right_distance
+                              : -right_distance;
+  double fade = visibility_noise_fade(fraction);
+  return 2.0 * (left_gradient + (right_gradient - left_gradient) * fade);
 }
 
 static int visibility_ray_cast(const visibility_map_t *map, double start_x, double start_y,
@@ -177,9 +217,15 @@ static void visibility_draw_shadow(const visibility_point_t *polygon, int count)
   nvgFill(visibility_state.vg);
 }
 
-static void visibility_draw_falloff(double light_x, double light_y)
+static void visibility_draw_falloff(double light_x, double light_y, double strength_noise)
 {
   const float margin = 100.0f;
+  float radius_scale = (float)(1.0 + strength_noise * VISIBILITY_TORCH_RADIUS_VARIATION);
+  float inner_opacity = (float)(VISIBILITY_TORCH_OPACITY_VARIATION * (1.0 - strength_noise));
+  float outer_opacity = (float)(VISIBILITY_FALLOFF_OPACITY -
+                                strength_noise * VISIBILITY_TORCH_OPACITY_VARIATION);
+  inner_opacity = fmaxf(0.0f, fminf(1.0f, inner_opacity));
+  outer_opacity = fmaxf(0.0f, fminf(1.0f, outer_opacity));
   float left = visibility_state.translate_x(-500.0f) - margin;
   float right = visibility_state.translate_x(500.0f) + margin;
   float top = visibility_state.translate_y(-500.0f) - margin;
@@ -197,10 +243,10 @@ static void visibility_draw_falloff(double light_x, double light_y)
       visibility_state.vg,
       visibility_state.convert_x((float)light_x),
       visibility_state.convert_y((float)light_y),
-      visibility_state.scale(VISIBILITY_FALLOFF_INNER_RADIUS),
-      visibility_state.scale(VISIBILITY_FALLOFF_OUTER_RADIUS),
-      nvgRGBAf(0.0f, 0.0f, 0.0f, 0.0f),
-      nvgRGBAf(0.0f, 0.0f, 0.0f, VISIBILITY_FALLOFF_OPACITY));
+      visibility_state.scale(VISIBILITY_FALLOFF_INNER_RADIUS * radius_scale),
+      visibility_state.scale(VISIBILITY_FALLOFF_OUTER_RADIUS * radius_scale),
+      nvgRGBAf(0.0f, 0.0f, 0.0f, inner_opacity),
+      nvgRGBAf(0.0f, 0.0f, 0.0f, outer_opacity));
   nvgFillPaint(visibility_state.vg, gradient);
   nvgFill(visibility_state.vg);
 }
@@ -253,6 +299,32 @@ JSValue js_engine_visibility_draw(JSContext *ctx, JSValueConst this_val,
   {
     return JS_ThrowRangeError(ctx, "invalid visibility draw arguments");
   }
+
+  uint64_t frame = sapp_frame_count();
+  if (frame != visibility_state.torch_frame)
+  {
+    double frame_duration = sapp_frame_duration();
+    visibility_state.torch_time += frame_duration > 0.0 && frame_duration < 0.1
+                                       ? frame_duration
+                                       : 1.0 / 60.0;
+    visibility_state.torch_frame = frame;
+  }
+
+  double torch_offset_x = visibility_perlin_noise(
+                              visibility_state.torch_time * VISIBILITY_TORCH_NOISE_SPEED_X,
+                              0x9e3779b9U) *
+                          VISIBILITY_TORCH_MOTION_X;
+  double torch_offset_y = visibility_perlin_noise(
+                              visibility_state.torch_time * VISIBILITY_TORCH_NOISE_SPEED_Y,
+                              0x85ebca6bU) *
+                          VISIBILITY_TORCH_MOTION_Y;
+  origin_x += torch_offset_x;
+  origin_y += torch_offset_y;
+  light_x += torch_offset_x * parent_scale;
+  light_y += torch_offset_y * parent_scale;
+  double torch_strength_noise = visibility_perlin_noise(
+      visibility_state.torch_time * VISIBILITY_TORCH_STRENGTH_SPEED,
+      0xc2b2ae35U);
 
   visibility_map_t *map = &visibility_maps[map_id];
   size_t tile_count = (size_t)map->width * (size_t)map->height;
@@ -459,7 +531,7 @@ JSValue js_engine_visibility_draw(JSContext *ctx, JSValueConst this_val,
     visibility_draw_shadow(polygon, polygon_count);
   }
 
-  visibility_draw_falloff(light_x, light_y);
+  visibility_draw_falloff(light_x, light_y, torch_strength_noise);
   free(found);
   free(visible);
   free(corners);
