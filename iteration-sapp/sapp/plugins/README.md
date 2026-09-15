@@ -37,7 +37,14 @@ These calls only append fixed-size commands to plugin memory. They never cross
 the WebAssembly/native boundary. After `iteration_call` returns, the host
 validates and executes the entire command buffer through NanoVG.
 
-`example.c` is both the smoke-test plugin and the native iOS Release example.
-Add production plugins to the generated native registry when configuring an
-iOS Release build. Bundled native plugins must be known at build time because
-iOS cannot load unsigned native code dynamically.
+`example.c` is the smoke-test plugin. `visibility.c` is the reference
+production plugin: it owns map/reveal/torch state, returns sparse reveal patches,
+and emits the complete shadow/falloff command buffer. The JavaScript compatibility
+wrappers preserve `visibilitySetMap()` and `visibilityDraw()` while loading it.
+Its direct methods are `setMap(id, width, height, tiles, floorTile, wallTile)` and
+`draw(id, originX, originY, parentX, parentY, parentScale, lightX, lightY,
+maxLength, frameDuration, frameIndex, left, right, top, bottom)`.
+
+Add production plugins to the native registry when configuring an iOS Release
+build. Bundled native plugins must be known at build time because iOS cannot load
+unsigned native code dynamically.

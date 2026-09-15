@@ -18,14 +18,33 @@
 #define ITERATION_WASM_FETCH_SIZE (16 * 1024 * 1024)
 
 #if defined(ITERATION_NATIVE_PLUGINS)
-uint32_t iteration_example_abi_version(void);
-iteration_plugin_ptr iteration_example_manifest_ptr(void);
-uint32_t iteration_example_manifest_len(void);
-iteration_plugin_ptr iteration_example_alloc(uint32_t size, uint32_t alignment);
-void iteration_example_free(iteration_plugin_ptr ptr, uint32_t size, uint32_t alignment);
-iteration_plugin_ptr iteration_example_call(uint32_t method,
-                                             iteration_plugin_ptr input_ptr,
-                                             uint32_t input_len);
+typedef struct iteration_native_plugin_api
+{
+  const char *name;
+  uint32_t (*abi_version)(void);
+  iteration_plugin_ptr (*manifest_ptr)(void);
+  uint32_t (*manifest_len)(void);
+  iteration_plugin_ptr (*alloc)(uint32_t, uint32_t);
+  void (*free)(iteration_plugin_ptr, uint32_t, uint32_t);
+  iteration_plugin_ptr (*call)(uint32_t, iteration_plugin_ptr, uint32_t);
+} iteration_native_plugin_api;
+#define ITERATION_DECLARE_NATIVE_PLUGIN(name) \
+  uint32_t iteration_##name##_abi_version(void); \
+  iteration_plugin_ptr iteration_##name##_manifest_ptr(void); \
+  uint32_t iteration_##name##_manifest_len(void); \
+  iteration_plugin_ptr iteration_##name##_alloc(uint32_t, uint32_t); \
+  void iteration_##name##_free(iteration_plugin_ptr, uint32_t, uint32_t); \
+  iteration_plugin_ptr iteration_##name##_call(uint32_t, iteration_plugin_ptr, uint32_t)
+ITERATION_DECLARE_NATIVE_PLUGIN(example);
+ITERATION_DECLARE_NATIVE_PLUGIN(visibility);
+static const iteration_native_plugin_api native_plugin_registry[] = {
+  {"example", iteration_example_abi_version, iteration_example_manifest_ptr,
+   iteration_example_manifest_len, iteration_example_alloc, iteration_example_free,
+   iteration_example_call},
+  {"visibility", iteration_visibility_abi_version, iteration_visibility_manifest_ptr,
+   iteration_visibility_manifest_len, iteration_visibility_alloc, iteration_visibility_free,
+   iteration_visibility_call}
+};
 #endif
 
 typedef struct wasm_load_request
@@ -399,15 +418,30 @@ JSValue js_engine_load_wasm(JSContext *ctx, JSValueConst this_val,
 #elif defined(ITERATION_NATIVE_PLUGINS)
   const char *requested = JS_ToCString(ctx, argv[0]);
   if (!requested) return JS_EXCEPTION;
-  int matches = strcmp(requested, "example") == 0 || strcmp(requested, "example.wasm") == 0;
+  int registry_count = (int)(sizeof(native_plugin_registry) / sizeof(native_plugin_registry[0]));
+  int plugin_id = -1;
+  for (int i = 0; i < registry_count; i++)
+  {
+    size_t name_len = strlen(native_plugin_registry[i].name);
+    if (strcmp(requested, native_plugin_registry[i].name) == 0 ||
+        (strncmp(requested, native_plugin_registry[i].name, name_len) == 0 &&
+         strcmp(requested + name_len, ".wasm") == 0))
+    {
+      plugin_id = i;
+      break;
+    }
+  }
   JS_FreeCString(ctx, requested);
-  if (!matches)
+  if (plugin_id < 0)
     return JS_ThrowReferenceError(ctx, "native plugin is not registered");
-  const char *manifest = (const char *)(uintptr_t)iteration_example_manifest_ptr();
+  const iteration_native_plugin_api *plugin = &native_plugin_registry[plugin_id];
+  if (plugin->abi_version() != ITERATION_PLUGIN_ABI_VERSION)
+    return JS_ThrowInternalError(ctx, "native plugin ABI is unsupported");
+  const char *manifest = (const char *)(uintptr_t)plugin->manifest_ptr();
   JSValue descriptor = JS_NewObject(ctx);
-  JS_SetPropertyStr(ctx, descriptor, "id", JS_NewInt32(ctx, 0));
+  JS_SetPropertyStr(ctx, descriptor, "id", JS_NewInt32(ctx, plugin_id));
   JS_SetPropertyStr(ctx, descriptor, "manifest",
-                    JS_NewStringLen(ctx, manifest, iteration_example_manifest_len()));
+                    JS_NewStringLen(ctx, manifest, plugin->manifest_len()));
   JSValue call_result = JS_Call(ctx, argv[1], JS_UNDEFINED, 1,
                                 (JSValueConst *)&descriptor);
   JS_FreeValue(ctx, call_result);
@@ -502,13 +536,15 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
   wamr_call_u32(plugin, "iteration_free", 3, free_args, NULL);
   return result;
 #elif defined(ITERATION_NATIVE_PLUGINS)
-  if (handle != 0)
+  int registry_count = (int)(sizeof(native_plugin_registry) / sizeof(native_plugin_registry[0]));
+  if (handle < 0 || handle >= registry_count)
     return JS_ThrowRangeError(ctx, "invalid native plugin handle");
-  iteration_plugin_ptr input_ptr = iteration_example_alloc((uint32_t)input_len, 8);
+  const iteration_native_plugin_api *plugin = &native_plugin_registry[handle];
+  iteration_plugin_ptr input_ptr = plugin->alloc((uint32_t)input_len, 8);
   if (input_len && !input_ptr)
     return JS_ThrowOutOfMemory(ctx);
   if (input_len) memcpy((void *)(uintptr_t)input_ptr, input, input_len);
-  iteration_plugin_ptr result_ptr = iteration_example_call(
+  iteration_plugin_ptr result_ptr = plugin->call(
       (uint32_t)method, input_ptr, (uint32_t)input_len);
   const iteration_plugin_result *native_result =
       (const iteration_plugin_result *)(uintptr_t)result_ptr;
@@ -517,7 +553,7 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
       native_result->render_len > ITERATION_WASM_FETCH_SIZE)
   {
     int status = native_result ? native_result->status : -1;
-    iteration_example_free(input_ptr, (uint32_t)input_len, 8);
+    plugin->free(input_ptr, (uint32_t)input_len, 8);
     return JS_ThrowInternalError(ctx, "native plugin returned an error (%d)", status);
   }
   const uint8_t *value = (const uint8_t *)(uintptr_t)native_result->value_ptr;
@@ -525,11 +561,11 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
   if (native_result->render_len && wasm_state.render &&
       !wasm_state.render(render, native_result->render_len))
   {
-    iteration_example_free(input_ptr, (uint32_t)input_len, 8);
+    plugin->free(input_ptr, (uint32_t)input_len, 8);
     return JS_ThrowInternalError(ctx, "plugin returned invalid render commands");
   }
   JSValue result = JS_NewArrayBufferCopy(ctx, value, native_result->value_len);
-  iteration_example_free(input_ptr, (uint32_t)input_len, 8);
+  plugin->free(input_ptr, (uint32_t)input_len, 8);
   return result;
 #else
   return JS_ThrowInternalError(ctx, "WebAssembly plugins are not enabled for this platform");

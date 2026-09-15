@@ -13,6 +13,16 @@ typedef uintptr_t iteration_plugin_ptr;
 typedef uint32_t iteration_plugin_ptr;
 #endif
 
+typedef struct iteration_frame_context
+{
+  uint64_t frame_index;
+  double frame_duration;
+  float viewport_left;
+  float viewport_right;
+  float viewport_top;
+  float viewport_bottom;
+} iteration_frame_context;
+
 typedef enum iteration_render_opcode
 {
   ITER_RENDER_BEGIN_PATH = 1,

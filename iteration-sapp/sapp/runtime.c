@@ -58,7 +58,6 @@
 
 #endif
 #include "engines/engines.h"
-#include "engines/visibility.h"
 #include "engines/wasm_plugins.h"
 #include "plugins/iteration_plugin.h"
 
@@ -773,6 +772,18 @@ static JSValue js_engine_get_screen_bottom(JSContext *ctx, JSValueConst this_val
 {
   JSValue bottom_js = JS_NewFloat64(state.ctx, get_translated_y(500));
   return bottom_js;
+}
+
+static JSValue js_engine_get_frame_duration(JSContext *ctx, JSValueConst this_val,
+                                            int argc, JSValueConst *argv)
+{
+  return JS_NewFloat64(ctx, sapp_frame_duration());
+}
+
+static JSValue js_engine_get_frame_count(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv)
+{
+  return JS_NewFloat64(ctx, (double)sapp_frame_count());
 }
 
 static void fetch_engine_load_text_callback(const sfetch_response_t *);
@@ -2203,9 +2214,6 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
 
     JS_CFUNC_DEF("drawTextureClip", 11, js_engine_draw_texture_clip),
 
-    JS_CFUNC_DEF("visibilitySetMap", 6, js_engine_visibility_set_map),
-    JS_CFUNC_DEF("visibilityDraw", 10, js_engine_visibility_draw),
-
     JS_CFUNC_DEF("graphicsBeginPath", 0, js_engine_graphics_begin_path),
     JS_CFUNC_DEF("graphicsClosePath", 0, js_engine_graphics_close_path),
 
@@ -2248,6 +2256,8 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("getScreenRight", 1, js_engine_get_screen_right),
     JS_CFUNC_DEF("getScreenTop", 1, js_engine_get_screen_top),
     JS_CFUNC_DEF("getScreenBottom", 1, js_engine_get_screen_bottom),
+    JS_CFUNC_DEF("getFrameDuration", 0, js_engine_get_frame_duration),
+    JS_CFUNC_DEF("getFrameCount", 0, js_engine_get_frame_count),
 
     JS_CFUNC_DEF("loadSound", 2, js_engine_load_sound),
     JS_CFUNC_DEF("playSound", 3, js_engine_play_sound),
@@ -2391,12 +2401,6 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
   }
 
   state.vg = vg;
-  visibility_init(vg,
-                  convert_local_x_to_screen,
-                  convert_local_y_to_screen,
-                  scale_local_to_screen,
-                  get_translated_x,
-                  get_translated_y);
 
   Soloud *soloud = Soloud_create();
   Soloud_initEx(soloud, SOLOUD_CLIP_ROUNDOFF | SOLOUD_ENABLE_VISUALIZATION,
