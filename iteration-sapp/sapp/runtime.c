@@ -59,6 +59,8 @@
 #endif
 #include "engines/engines.h"
 #include "engines/visibility.h"
+#include "engines/wasm_plugins.h"
+#include "plugins/iteration_plugin.h"
 
 #define FETCH_BUFFER_SIZE 1024 * 1024
 
@@ -2069,9 +2071,127 @@ static void fetch_engine_load_font_callback(const sfetch_response_t *response)
   free(response->data.ptr);
 }
 
+static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t size)
+{
+  if (!bytes || size < sizeof(iteration_render_buffer))
+    return 0;
+
+  iteration_render_buffer header;
+  memcpy(&header, bytes, sizeof(header));
+  if (header.magic != ITERATION_RENDER_MAGIC ||
+      header.version != ITERATION_PLUGIN_ABI_VERSION ||
+      header.byte_length != size)
+    return 0;
+
+  size_t offset = sizeof(header);
+  uint32_t command_count = 0;
+  while (offset < size)
+  {
+    iteration_render_command command;
+    if (size - offset < sizeof(command))
+      return 0;
+    memcpy(&command, bytes + offset, sizeof(command));
+    if (command.byte_size < sizeof(command) || command.byte_size > size - offset)
+      return 0;
+
+    switch (command.opcode)
+    {
+    case ITER_RENDER_BEGIN_PATH:
+      nvgBeginPath(state.vg);
+      break;
+    case ITER_RENDER_CLOSE_PATH:
+      nvgClosePath(state.vg);
+      break;
+    case ITER_RENDER_MOVE_TO:
+    case ITER_RENDER_LINE_TO:
+    {
+      iteration_xy_command value;
+      if (command.byte_size != sizeof(value)) return 0;
+      memcpy(&value, bytes + offset, sizeof(value));
+      float x = convert_local_x_to_screen(value.x);
+      float y = convert_local_y_to_screen(value.y);
+      if (command.opcode == ITER_RENDER_MOVE_TO) nvgMoveTo(state.vg, x, y);
+      else nvgLineTo(state.vg, x, y);
+      break;
+    }
+    case ITER_RENDER_RECT:
+    case ITER_RENDER_ROUNDED_RECT:
+    {
+      iteration_rect_command value;
+      if (command.byte_size != sizeof(value)) return 0;
+      memcpy(&value, bytes + offset, sizeof(value));
+      float x = convert_local_x_to_screen(value.x);
+      float y = convert_local_y_to_screen(value.y);
+      float width = scale_local_to_screen(value.width);
+      float height = scale_local_to_screen(value.height);
+      if (command.opcode == ITER_RENDER_RECT)
+        nvgRect(state.vg, x, y, width, height);
+      else
+        nvgRoundedRect(state.vg, x, y, width, height,
+                       scale_local_to_screen(value.radius));
+      break;
+    }
+    case ITER_RENDER_FILL_COLOR:
+    case ITER_RENDER_STROKE_COLOR:
+    {
+      iteration_color_command value;
+      if (command.byte_size != sizeof(value)) return 0;
+      memcpy(&value, bytes + offset, sizeof(value));
+      NVGcolor color = nvgRGBAf(value.red, value.green, value.blue, value.alpha);
+      if (command.opcode == ITER_RENDER_FILL_COLOR) nvgFillColor(state.vg, color);
+      else nvgStrokeColor(state.vg, color);
+      break;
+    }
+    case ITER_RENDER_PATH_SOLID:
+      nvgPathWinding(state.vg, NVG_SOLID);
+      break;
+    case ITER_RENDER_PATH_HOLE:
+      nvgPathWinding(state.vg, NVG_HOLE);
+      break;
+    case ITER_RENDER_RADIAL_GRADIENT:
+    {
+      iteration_radial_gradient_command value;
+      if (command.byte_size != sizeof(value)) return 0;
+      memcpy(&value, bytes + offset, sizeof(value));
+      NVGpaint paint = nvgRadialGradient(
+          state.vg,
+          convert_local_x_to_screen(value.center_x),
+          convert_local_y_to_screen(value.center_y),
+          scale_local_to_screen(value.inner_radius),
+          scale_local_to_screen(value.outer_radius),
+          nvgRGBAf(value.inner_red, value.inner_green, value.inner_blue, value.inner_alpha),
+          nvgRGBAf(value.outer_red, value.outer_green, value.outer_blue, value.outer_alpha));
+      nvgFillPaint(state.vg, paint);
+      break;
+    }
+    case ITER_RENDER_FILL:
+      nvgFill(state.vg);
+      break;
+    case ITER_RENDER_STROKE_WIDTH:
+    {
+      iteration_scalar_command value;
+      if (command.byte_size != sizeof(value)) return 0;
+      memcpy(&value, bytes + offset, sizeof(value));
+      nvgStrokeWidth(state.vg, scale_local_to_screen(value.value));
+      break;
+    }
+    case ITER_RENDER_STROKE:
+      nvgStroke(state.vg);
+      break;
+    default:
+      return 0;
+    }
+    offset += command.byte_size;
+    command_count++;
+  }
+  return offset == size && command_count == header.command_count;
+}
+
 static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("loadTexture", 2, js_engine_load_texture),
     JS_CFUNC_DEF("loadText", 2, js_engine_load_text),
+    JS_CFUNC_DEF("loadWasm", 2, js_engine_load_wasm),
+    JS_CFUNC_DEF("callWasm", 3, js_engine_call_wasm),
     JS_CFUNC_DEF("setTexture", 1, js_engine_set_texture),
     JS_CFUNC_DEF("drawTexture", 7, js_engine_draw_texture),
 
@@ -2203,6 +2323,11 @@ void drawButton(NVGcontext *vg, int preicon, const char *text, float x, float y,
   nvgText(vg, x + w * 0.5f - tw * 0.5f + iw * 0.25f, y + h * 0.5f, text, NULL);
 }
 
+void engine_shutdown()
+{
+  wasm_plugins_shutdown();
+}
+
 void engine_frame()
 {
 
@@ -2313,6 +2438,7 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
           .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA}});
 
   state.ctx = ctx;
+  wasm_plugins_init(ctx, engine_execute_plugin_render_commands);
 
   return JS_SetModuleExportList(ctx, m, js_my_module_funcs, countof(js_my_module_funcs));
 }

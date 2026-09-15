@@ -456,6 +456,7 @@ static void event(const sapp_event *e)
 
 static void cleanup(void)
 {
+  engine_shutdown();
   __dbgui_shutdown();
   sfetch_shutdown();
   sg_shutdown();

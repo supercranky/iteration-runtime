@@ -17,3 +17,112 @@ object-assign
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+
+import * as RuntimeWasm from "runtime";
+const wasmEncodeText = (text) => {
+    const encoded = unescape(encodeURIComponent(text));
+    const bytes = new Uint8Array(encoded.length);
+    for (let i = 0; i < encoded.length; i++) bytes[i] = encoded.charCodeAt(i);
+    return bytes;
+};
+const wasmDecodeText = (bytes) => {
+    let encoded = "";
+    for (let i = 0; i < bytes.length; i++) encoded += String.fromCharCode(bytes[i]);
+    return decodeURIComponent(escape(encoded));
+};
+
+const encodeWasmArguments = (args) => {
+    const values = args.map((value) => {
+        if (value === undefined) return { tag: 0, bytes: new Uint8Array(0) };
+        if (value === null) return { tag: 1, bytes: new Uint8Array(0) };
+        if (typeof value === "boolean") return { tag: 2, bytes: Uint8Array.of(value ? 1 : 0) };
+        if (typeof value === "number") {
+            const bytes = new Uint8Array(8);
+            new DataView(bytes.buffer).setFloat64(0, value, true);
+            return { tag: 3, bytes };
+        }
+        if (typeof value === "string") return { tag: 4, bytes: wasmEncodeText(value) };
+        if (value instanceof ArrayBuffer) return { tag: 5, bytes: new Uint8Array(value) };
+        if (ArrayBuffer.isView(value)) {
+            return { tag: 5, bytes: new Uint8Array(value.buffer, value.byteOffset, value.byteLength) };
+        }
+        if (Array.isArray(value)) {
+            const bytes = new Uint8Array(value.length * 8);
+            const view = new DataView(bytes.buffer);
+            value.forEach((entry, index) => view.setFloat64(index * 8, Number(entry), true));
+            return { tag: 6, bytes };
+        }
+        throw new TypeError("unsupported WebAssembly plugin argument");
+    });
+    let size = 4;
+    for (const value of values) size += 8 + value.bytes.byteLength;
+    const packet = new ArrayBuffer(size);
+    const view = new DataView(packet);
+    const output = new Uint8Array(packet);
+    view.setUint32(0, values.length, true);
+    let offset = 4;
+    for (const value of values) {
+        view.setUint32(offset, value.tag, true);
+        view.setUint32(offset + 4, value.bytes.byteLength, true);
+        output.set(value.bytes, offset + 8);
+        offset += 8 + value.bytes.byteLength;
+    }
+    return packet;
+};
+
+const decodeWasmResult = (packet) => {
+    if (!packet || packet.byteLength < 8) return undefined;
+    const view = new DataView(packet);
+    const bytes = new Uint8Array(packet);
+    const tag = view.getUint32(0, true);
+    const length = view.getUint32(4, true);
+    if (length > packet.byteLength - 8) throw new Error("invalid WebAssembly plugin result");
+    if (tag === 0) return undefined;
+    if (tag === 1) return null;
+    if (tag === 2 && length === 1) return bytes[8] !== 0;
+    if (tag === 3 && length === 8) return view.getFloat64(8, true);
+    if (tag === 4) return wasmDecodeText(bytes.slice(8, 8 + length));
+    if (tag === 5) return bytes.slice(8, 8 + length);
+    if (tag === 6) {
+        if (length % 8) throw new Error("invalid numeric array result");
+        const result = [];
+        for (let offset = 8; offset < 8 + length; offset += 8)
+            result.push(view.getFloat64(offset, true));
+        return result;
+    }
+    throw new Error("unknown WebAssembly plugin result type");
+};
+
+const wasmModules = new Map();
+c.loadWasm = (name) => {
+    if (wasmModules.has(name)) return wasmModules.get(name);
+    const loading = new Promise((resolve, reject) => {
+    RuntimeWasm.loadWasm(name, (descriptor) => {
+        if (descriptor.error) {
+            reject(new Error(descriptor.error));
+            return;
+        }
+        try {
+            const manifest = JSON.parse(descriptor.manifest);
+            if (manifest.abi !== "iteration.plugin/1" || !manifest.exports)
+                throw new Error("invalid Iteration plugin manifest");
+            const module = {};
+            for (const exportName of Object.keys(manifest.exports)) {
+                const method = manifest.exports[exportName];
+                if (!method || !Number.isInteger(method.id) || method.id < 0)
+                    throw new Error("invalid WebAssembly plugin export");
+                module[exportName] = (...args) => decodeWasmResult(
+                    RuntimeWasm.callWasm(descriptor.id, method.id, encodeWasmArguments(args))
+                );
+            }
+            Object.defineProperty(module, "name", { value: manifest.name || name });
+            resolve(module);
+        } catch (error) {
+            reject(error);
+        }
+    });
+    });
+    wasmModules.set(name, loading);
+    loading.catch(() => wasmModules.delete(name));
+    return loading;
+};

@@ -31,3 +31,6 @@
 [submodule "sokol-tools-bin"]
 	path = sokol-tools-bin
 	url = https://github.com/floooh/sokol-tools-bin.git
+[submodule "wasm-micro-runtime"]
+	path = wasm-micro-runtime
+	url = https://github.com/bytecodealliance/wasm-micro-runtime.git

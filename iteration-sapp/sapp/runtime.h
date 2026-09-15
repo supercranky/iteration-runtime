@@ -12,6 +12,7 @@ extern "C"
   JSValue engine_get_frame_callback();
 
   void engine_frame();
+  void engine_shutdown();
 
   int engine_get_viewport_mode();
   void engine_handle_event(const sapp_event *e);
