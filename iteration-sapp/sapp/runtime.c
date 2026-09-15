@@ -26,6 +26,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -772,6 +773,17 @@ static JSValue js_engine_get_screen_bottom(JSContext *ctx, JSValueConst this_val
 {
   JSValue bottom_js = JS_NewFloat64(state.ctx, get_translated_y(500));
   return bottom_js;
+}
+
+static JSValue js_engine_now(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+  (void)this_val; (void)argc; (void)argv;
+#if defined(__EMSCRIPTEN__)
+  return JS_NewFloat64(ctx, emscripten_get_now());
+#else
+  struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+  return JS_NewFloat64(ctx, (double)now.tv_sec*1000.0+(double)now.tv_nsec/1000000.0);
+#endif
 }
 
 static JSValue js_engine_get_frame_duration(JSContext *ctx, JSValueConst this_val,
@@ -2082,7 +2094,9 @@ static void fetch_engine_load_font_callback(const sfetch_response_t *response)
   free(response->data.ptr);
 }
 
-static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t size)
+#include "engines/min_layers.h"
+
+static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, size_t size)
 {
   if (!bytes || size < sizeof(iteration_render_buffer))
     return 0;
@@ -2107,6 +2121,14 @@ static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t si
 
     switch (command.opcode)
     {
+    case ITER_RENDER_MIN_LAYER_FIRST:
+    case ITER_RENDER_MIN_LAYER_NEXT:
+      if (command.byte_size != sizeof(command) || !min_layers_begin(&state.vg, command.opcode == ITER_RENDER_MIN_LAYER_FIRST)) return 0;
+      break;
+    case ITER_RENDER_MIN_LAYER_END:
+    case ITER_RENDER_MIN_LAYER_PRESENT:
+      if (command.byte_size != sizeof(command) || !min_layers_end(&state.vg, command.opcode == ITER_RENDER_MIN_LAYER_PRESENT)) return 0;
+      break;
     case ITER_RENDER_BEGIN_PATH:
       nvgBeginPath(state.vg);
       break;
@@ -2198,6 +2220,13 @@ static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t si
   return offset == size && command_count == header.command_count;
 }
 
+static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t size)
+{
+  int ok=engine_execute_plugin_render_commands_inner(bytes,size);
+  if(!ok || !min_layers_balanced()){min_layers_abort(&state.vg);return 0;}
+  return 1;
+}
+
 static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("loadTexture", 2, js_engine_load_texture),
     JS_CFUNC_DEF("loadText", 2, js_engine_load_text),
@@ -2214,6 +2243,7 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
 
     JS_CFUNC_DEF("drawTextureClip", 11, js_engine_draw_texture_clip),
 
+    JS_CFUNC_DEF("now", 0, js_engine_now),
     JS_CFUNC_DEF("graphicsBeginPath", 0, js_engine_graphics_begin_path),
     JS_CFUNC_DEF("graphicsClosePath", 0, js_engine_graphics_close_path),
 
@@ -2336,6 +2366,7 @@ void drawButton(NVGcontext *vg, int preicon, const char *text, float x, float y,
 void engine_shutdown()
 {
   wasm_plugins_shutdown();
+  min_layers_shutdown();
 }
 
 void engine_frame()

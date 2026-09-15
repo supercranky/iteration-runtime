@@ -43,6 +43,7 @@ Then test <http://localhost:8000/iteration-sapp.html>. WebAudio autoplay warning
 - `iteration-sapp/sapp/data/index.js`: JavaScript entry point loaded by QuickJS
 - `iteration-sapp/sapp/data/iteration-assets.yml`: deployment asset allowlist
 - `iteration-sapp/sapp/quickjs/`: minimal vendored QuickJS runtime
+- `iteration-sapp/sapp/plugins/`: generic plugin ABI and runtime smoke-test plugin
 - `iteration-sapp/libs/sokol/`: Sokol implementation translation units
 - `sokol/`: pinned upstream Sokol headers
 - `sokol-tools-bin/`: pinned shader compiler binaries
@@ -65,6 +66,7 @@ These are covered by the root `.gitignore`. If a new tool creates generated outp
 - Keep dependency directories as Git submodules; do not vendor their generated output.
 - When upgrading Sokol, update `sokol` and `sokol-tools-bin` together and migrate removed APIs in the application.
 - QuickJS is intentionally vendored as only the files needed to build the embedded library. Do not add upstream tests, examples, command-line tools, generated archives, or precompiled libraries.
+- Application-specific plugins and their build systems belong in the consuming application repository. Keep only the stable plugin ABI, generic host, and smoke-test plugin here.
 - Do not edit files under `fips-build/`, `fips-deploy/`, or `fips-sdks/`; regenerate them.
 
 ## Coding notes

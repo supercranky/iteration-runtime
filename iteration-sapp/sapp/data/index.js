@@ -112,29 +112,6 @@ Engine.loadWasm = (name) => {
     return loading;
 };
 
-let visibilityWasm, visibilityPlugin;
-const pendingVisibilityMaps = [];
-const ensureVisibilityWasm = () => {
-    if (!visibilityWasm) visibilityWasm = Engine.loadWasm("visibility").then((plugin) => {
-        visibilityPlugin = plugin;
-        for (const args of pendingVisibilityMaps) plugin.setMap(...args);
-        pendingVisibilityMaps.length = 0;
-        return plugin;
-    });
-    return visibilityWasm;
-};
-Engine.visibilitySetMap = (...args) => {
-    if (visibilityPlugin) visibilityPlugin.setMap(...args);
-    else { pendingVisibilityMaps.push(args); ensureVisibilityWasm(); }
-};
-Engine.visibilityDraw = (...args) => {
-    if (!visibilityPlugin) { ensureVisibilityWasm(); return; }
-    const patch = visibilityPlugin.draw(args[0], ...args.slice(2), Runtime.getFrameDuration(),
-        Runtime.getFrameCount(), Runtime.getScreenLeft(), Runtime.getScreenRight(),
-        Runtime.getScreenTop(), Runtime.getScreenBottom());
-    for (let i = 0; patch && i < patch.length; i += 2) args[1][patch[i]] = patch[i + 1];
-};
-
 Engine.loadTexture = (file) => {
     return new Promise((resolve) => {
         Runtime.loadTexture(file, (texture) => {

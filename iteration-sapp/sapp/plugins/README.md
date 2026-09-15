@@ -1,8 +1,9 @@
 # Iteration plugins
 
 Plugins implement `iteration.plugin/1` from `iteration_plugin.h`. The runtime
-loads the same interface through browser WebAssembly, WAMR on iOS Debug, and a
-statically compiled native implementation on iOS Release.
+loads the same interface through browser WebAssembly and WAMR on iOS Debug and
+Release. The host also supports statically compiled native plugins for targets
+that explicitly register them.
 
 ## Required exports
 
@@ -37,14 +38,26 @@ These calls only append fixed-size commands to plugin memory. They never cross
 the WebAssembly/native boundary. After `iteration_call` returns, the host
 validates and executes the entire command buffer through NanoVG.
 
-`example.c` is the smoke-test plugin. `visibility.c` is the reference
-production plugin: it owns map/reveal/torch state, returns sparse reveal patches,
-and emits the complete shadow/falloff command buffer. The JavaScript compatibility
-wrappers preserve `visibilitySetMap()` and `visibilityDraw()` while loading it.
-Its direct methods are `setMap(id, width, height, tiles, floorTile, wallTile)` and
-`draw(id, originX, originY, parentX, parentY, parentScale, lightX, lightY,
-maxLength, frameDuration, frameIndex, left, right, top, bottom)`.
+WebGL2/OpenGLES3 supports generic minimum-alpha layers via `graphicsCommand`:
+`ITER_RENDER_MIN_LAYER_FIRST` clears a reusable accumulator and starts a layer;
+`ITER_RENDER_MIN_LAYER_NEXT` starts another transparent layer;
+`ITER_RENDER_MIN_LAYER_END` flushes it using component-wise GL_MIN;
+`ITER_RENDER_MIN_LAYER_PRESENT` flushes and queues the combined image in the
+main NanoVG frame. Each begin/end pair must be within one command buffer;
+a group can span multiple plugin calls. These full-frame layers preserve normal
+NanoVG paths/gradients and are intended for black alpha masks. Metal currently
+rejects these commands. Invalid buffers cancel an active layer and restore the
+main context. No application-specific geometry is implemented in the host.
 
-Add production plugins to the native registry when configuring an iOS Release
-build. Bundled native plugins must be known at build time because iOS cannot load
+`Runtime.now()` exposes a monotonic millisecond timer for profiling CPU work;
+it does not include asynchronous GPU completion.
+
+`example.c` is the runtime's smoke-test plugin. Production plugins belong to the
+application repository that owns them and should use this directory's
+`iteration_plugin.h` as their SDK. Applications are responsible for compiling,
+packaging, loading, and calling their plugins.
+
+Application-owned `.wasm` plugins can be packaged as iOS resources and run
+through WAMR in both Debug and Release builds. Native plugins remain an optional
+alternative and must be registered at build time because iOS cannot load
 unsigned native code dynamically.

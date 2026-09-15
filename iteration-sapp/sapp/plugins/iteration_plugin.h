@@ -38,7 +38,11 @@ typedef enum iteration_render_opcode
   ITER_RENDER_FILL = 11,
   ITER_RENDER_STROKE_COLOR = 12,
   ITER_RENDER_STROKE_WIDTH = 13,
-  ITER_RENDER_STROKE = 14
+  ITER_RENDER_STROKE = 14,
+  ITER_RENDER_MIN_LAYER_FIRST = 15,
+  ITER_RENDER_MIN_LAYER_NEXT = 16,
+  ITER_RENDER_MIN_LAYER_END = 17,
+  ITER_RENDER_MIN_LAYER_PRESENT = 18
 } iteration_render_opcode;
 
 typedef struct iteration_render_buffer

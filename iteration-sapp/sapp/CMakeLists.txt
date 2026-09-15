@@ -17,7 +17,7 @@ fips_files(engines/engines.c)
 fips_files(engines/wasm_plugins.c engines/wasm_plugins.h)
 fips_files(plugins/iteration_plugin.h)
 if(FIPS_IOS AND CMAKE_BUILD_TYPE STREQUAL "Release")
-  fips_files(plugins/example.c plugins/visibility.c)
+  fips_files(plugins/example.c)
   add_definitions(-DITERATION_NATIVE_PLUGINS=1)
 endif()
 
@@ -49,12 +49,15 @@ file(
 
 fips_deps(sokol fileutil quickjs nanovg soloud)
 
-if(FIPS_IOS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+if(FIPS_IOS)
   set(WAMR_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../wasm-micro-runtime")
   set(WAMR_BUILD_PLATFORM darwin)
   set(WAMR_BUILD_TARGET AARCH64)
   set(WAMR_BUILD_INTERP 1)
   set(WAMR_BUILD_FAST_INTERP 1)
+  # iOS rejects WAMR's 8 GiB guard-page reservation used by hardware bounds
+  # checking. Software bounds checks avoid the failed mmap at module load.
+  set(WAMR_DISABLE_HW_BOUND_CHECK 1)
   set(WAMR_BUILD_AOT 0)
   set(WAMR_BUILD_LIBC_BUILTIN 0)
   set(WAMR_BUILD_LIBC_WASI 0)
@@ -84,23 +87,8 @@ if(FIPS_EMSCRIPTEN)
       -o "${iteration_example_wasm}"
     DEPENDS plugins/example.c plugins/iteration_plugin.h
     VERBATIM)
-  set(iteration_visibility_wasm "${FIPS_PROJECT_DEPLOY_DIR}/visibility.wasm")
-  add_custom_command(
-    OUTPUT "${iteration_visibility_wasm}"
-    COMMAND ${CMAKE_C_COMPILER}
-      "${CMAKE_CURRENT_LIST_DIR}/plugins/visibility.c"
-      -I"${CMAKE_CURRENT_LIST_DIR}/plugins"
-      -Oz --no-entry
-      -sSTANDALONE_WASM=1
-      -sALLOW_MEMORY_GROWTH=0
-      -sINITIAL_MEMORY=4194304
-      -sERROR_ON_UNDEFINED_SYMBOLS=1
-      "-sEXPORTED_FUNCTIONS=['_iteration_abi_version','_iteration_manifest_ptr','_iteration_manifest_len','_iteration_alloc','_iteration_free','_iteration_call']"
-      -o "${iteration_visibility_wasm}"
-    DEPENDS plugins/visibility.c plugins/iteration_plugin.h
-    VERBATIM)
   add_custom_target(iteration-example-plugin ALL DEPENDS
-    "${iteration_example_wasm}" "${iteration_visibility_wasm}")
+    "${iteration_example_wasm}")
   add_dependencies(iteration-sapp iteration-example-plugin)
 elseif(FIPS_IOS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   set(iteration_emcc
@@ -121,27 +109,12 @@ elseif(FIPS_IOS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
       -o "${iteration_example_wasm}"
     DEPENDS plugins/example.c plugins/iteration_plugin.h
     VERBATIM)
-  set(iteration_visibility_wasm "${CMAKE_CURRENT_BINARY_DIR}/visibility.wasm")
-  add_custom_command(
-    OUTPUT "${iteration_visibility_wasm}"
-    COMMAND ${CMAKE_COMMAND} -E env "EMSDK_PYTHON=${iteration_host_python}"
-      "${iteration_emcc}" "${CMAKE_CURRENT_LIST_DIR}/plugins/visibility.c"
-      -I"${CMAKE_CURRENT_LIST_DIR}/plugins"
-      -Oz --no-entry
-      -sSTANDALONE_WASM=1
-      -sALLOW_MEMORY_GROWTH=0
-      -sINITIAL_MEMORY=4194304
-      -sERROR_ON_UNDEFINED_SYMBOLS=1
-      "-sEXPORTED_FUNCTIONS=['_iteration_abi_version','_iteration_manifest_ptr','_iteration_manifest_len','_iteration_alloc','_iteration_free','_iteration_call']"
-      -o "${iteration_visibility_wasm}"
-    DEPENDS plugins/visibility.c plugins/iteration_plugin.h
-    VERBATIM)
   add_custom_target(iteration-example-plugin ALL DEPENDS
-    "${iteration_example_wasm}" "${iteration_visibility_wasm}")
+    "${iteration_example_wasm}")
   add_dependencies(iteration-sapp iteration-example-plugin)
-  set_source_files_properties("${iteration_example_wasm}" "${iteration_visibility_wasm}" PROPERTIES
+  set_source_files_properties("${iteration_example_wasm}" PROPERTIES
     GENERATED TRUE MACOSX_PACKAGE_LOCATION Resources)
-  target_sources(iteration-sapp PUBLIC "${iteration_example_wasm}" "${iteration_visibility_wasm}")
+  target_sources(iteration-sapp PUBLIC "${iteration_example_wasm}")
 endif()
 
 if(FIPS_IOS)

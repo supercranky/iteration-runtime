@@ -36,14 +36,10 @@ typedef struct iteration_native_plugin_api
   void iteration_##name##_free(iteration_plugin_ptr, uint32_t, uint32_t); \
   iteration_plugin_ptr iteration_##name##_call(uint32_t, iteration_plugin_ptr, uint32_t)
 ITERATION_DECLARE_NATIVE_PLUGIN(example);
-ITERATION_DECLARE_NATIVE_PLUGIN(visibility);
 static const iteration_native_plugin_api native_plugin_registry[] = {
   {"example", iteration_example_abi_version, iteration_example_manifest_ptr,
    iteration_example_manifest_len, iteration_example_alloc, iteration_example_free,
-   iteration_example_call},
-  {"visibility", iteration_visibility_abi_version, iteration_visibility_manifest_ptr,
-   iteration_visibility_manifest_len, iteration_visibility_alloc, iteration_visibility_free,
-   iteration_visibility_call}
+   iteration_example_call}
 };
 #endif
 
