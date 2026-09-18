@@ -83,6 +83,10 @@ static struct
   sg_image textures[256];
   sg_view texture_views[256];
   sg_sampler sampler;
+  sg_sampler nearest_sampler;
+  float sprite_pixel_scale;
+  float sprite_pixel_origin_x;
+  float sprite_pixel_origin_y;
   image_sizes texture_sizes[256];
   uint8_t file_buffer[1024 * 1024];
   JSValue frame_callback;
@@ -495,6 +499,9 @@ void set_viewport()
     }
 
     sgl_viewport(x, y, size, size, true);
+    state.sprite_pixel_scale = size * 0.5f;
+    state.sprite_pixel_origin_x = x + size * 0.5f;
+    state.sprite_pixel_origin_y = h - y - size * 0.5f;
     break;
   case ITER_VIEWPORT_FIXED_WIDTH:
     x = 0;
@@ -503,6 +510,9 @@ void set_viewport()
     sgl_load_identity();
     sgl_viewport(0, 0, w, h, true);
     sgl_scale(1, w / h, 1);
+    state.sprite_pixel_scale = w * 0.5f;
+    state.sprite_pixel_origin_x = w * 0.5f;
+    state.sprite_pixel_origin_y = h * 0.5f;
     break;
   case ITER_VIEWPORT_FIXED_HEIGHT:
 
@@ -512,6 +522,9 @@ void set_viewport()
     sgl_load_identity();
     sgl_viewport(0, 0, w, h, true);
     sgl_scale(h / w, 1, 1);
+    state.sprite_pixel_scale = h * 0.5f;
+    state.sprite_pixel_origin_x = w * 0.5f;
+    state.sprite_pixel_origin_y = h * 0.5f;
     break;
   }
 }
@@ -792,6 +805,14 @@ static JSValue js_engine_get_frame_duration(JSContext *ctx, JSValueConst this_va
   return JS_NewFloat64(ctx, sapp_frame_duration());
 }
 
+// Size of a physical framebuffer pixel in the runtime's logical coordinates.
+static JSValue js_engine_get_pixel_size(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv)
+{
+  return JS_NewFloat64(ctx, state.sprite_pixel_scale > 0.0f
+      ? 500.0 / state.sprite_pixel_scale : 1.0);
+}
+
 static JSValue js_engine_get_frame_count(JSContext *ctx, JSValueConst this_val,
                                          int argc, JSValueConst *argv)
 {
@@ -814,7 +835,9 @@ static JSValue js_engine_set_texture(JSContext *ctx, JSValueConst this_val,
 
   state.current_texture = texture_id;
 
-  sgl_texture(state.texture_views[texture_id], state.sampler);
+  int nearest = argc > 1 ? JS_ToBool(ctx, argv[1]) : 0;
+  if (nearest < 0) return JS_EXCEPTION;
+  sgl_texture(state.texture_views[texture_id], nearest ? state.nearest_sampler : state.sampler);
 
   return JS_UNDEFINED;
 }
@@ -1081,6 +1104,19 @@ static JSValue js_engine_set_touchmove_callback(JSContext *ctx, JSValueConst thi
   return JS_UNDEFINED;
 }
 
+// Snap final textured vertices, including rotation and anchor offsets, to
+// framebuffer pixels. The viewport accounts for high-DPI devices and zoom;
+// rounding shared tile edges identically avoids gaps between adjacent tiles.
+static void sprite_pixel_vertex(float x, float y, float u, float v)
+{
+  float scale = state.sprite_pixel_scale;
+  if (scale > 0.0f) {
+    x = (floorf(x * scale + state.sprite_pixel_origin_x + 0.5f) - state.sprite_pixel_origin_x) / scale;
+    y = (floorf(y * scale + state.sprite_pixel_origin_y + 0.5f) - state.sprite_pixel_origin_y) / scale;
+  }
+  sgl_v2f_t2f(x, y, u, v);
+}
+
 static JSValue js_engine_draw_texture(JSContext *ctx, JSValueConst this_val,
                                       int argc, JSValueConst *argv)
 {
@@ -1159,10 +1195,10 @@ static JSValue js_engine_draw_texture(JSContext *ctx, JSValueConst this_val,
   {
     sgl_begin_quads();
     sgl_c4f(alpha_real, alpha_real, alpha_real, alpha_real);
-    sgl_v2f_t2f(topLeftX + x_real, topLeftY + y_real, 0, uv_y);
-    sgl_v2f_t2f(topRightX + x_real, topRightY + y_real, uv_x, uv_y);
-    sgl_v2f_t2f(bottomLeftX + x_real, bottomLeftY + y_real, uv_x, 0);
-    sgl_v2f_t2f(bottomRightX + x_real, bottomRightY + y_real, 0, 0);
+    sprite_pixel_vertex(topLeftX + x_real, topLeftY + y_real, 0, uv_y);
+    sprite_pixel_vertex(topRightX + x_real, topRightY + y_real, uv_x, uv_y);
+    sprite_pixel_vertex(bottomLeftX + x_real, bottomLeftY + y_real, uv_x, 0);
+    sprite_pixel_vertex(bottomRightX + x_real, bottomRightY + y_real, 0, 0);
     sgl_end();
   }
   else
@@ -1181,10 +1217,10 @@ static JSValue js_engine_draw_texture(JSContext *ctx, JSValueConst this_val,
 
     sgl_begin_quads();
     sgl_c4f(alpha_real, alpha_real, alpha_real, alpha_real);
-    sgl_v2f_t2f((topLeftXRot) + x_real, (topLeftYRot) + y_real, 0, 1);
-    sgl_v2f_t2f((topRightXRot) + x_real, (topRightYRot) + y_real, 1, 1);
-    sgl_v2f_t2f((bottomLeftXRot) + x_real, (bottomLeftYRot) + y_real, 1, 0);
-    sgl_v2f_t2f((bottomRightXRot) + x_real, (bottomRightYRot) + y_real, 0, 0);
+    sprite_pixel_vertex((topLeftXRot) + x_real, (topLeftYRot) + y_real, 0, 1);
+    sprite_pixel_vertex((topRightXRot) + x_real, (topRightYRot) + y_real, 1, 1);
+    sprite_pixel_vertex((bottomLeftXRot) + x_real, (bottomLeftYRot) + y_real, 1, 0);
+    sprite_pixel_vertex((bottomRightXRot) + x_real, (bottomRightYRot) + y_real, 0, 0);
     sgl_end();
   }
 
@@ -1267,10 +1303,10 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
 
     sgl_begin_quads();
     sgl_c4f(alpha, alpha, alpha, alpha);
-    sgl_v2f_t2f(topLeftX + x, topLeftY + y, uv_left, uv_bottom);
-    sgl_v2f_t2f(topRightX + x, topRightY + y, uv_right, uv_bottom);
-    sgl_v2f_t2f(bottomLeftX + x, bottomLeftY + y, uv_right, uv_top);
-    sgl_v2f_t2f(bottomRightX + x, bottomRightY + y, uv_left, uv_top);
+    sprite_pixel_vertex(topLeftX + x, topLeftY + y, uv_left, uv_bottom);
+    sprite_pixel_vertex(topRightX + x, topRightY + y, uv_right, uv_bottom);
+    sprite_pixel_vertex(bottomLeftX + x, bottomLeftY + y, uv_right, uv_top);
+    sprite_pixel_vertex(bottomRightX + x, bottomRightY + y, uv_left, uv_top);
     sgl_end();
   }
   else
@@ -1289,10 +1325,10 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
 
     sgl_begin_quads();
     sgl_c4f(alpha, alpha, alpha, alpha);
-    sgl_v2f_t2f((topLeftXRot) + x, (topLeftYRot) + y, uv_left, uv_bottom);
-    sgl_v2f_t2f((topRightXRot) + x, (topRightYRot) + y, uv_right, uv_bottom);
-    sgl_v2f_t2f((bottomLeftXRot) + x, (bottomLeftYRot) + y, uv_right, uv_top);
-    sgl_v2f_t2f((bottomRightXRot) + x, (bottomRightYRot) + y, uv_left, uv_top);
+    sprite_pixel_vertex((topLeftXRot) + x, (topLeftYRot) + y, uv_left, uv_bottom);
+    sprite_pixel_vertex((topRightXRot) + x, (topRightYRot) + y, uv_right, uv_bottom);
+    sprite_pixel_vertex((bottomLeftXRot) + x, (bottomLeftYRot) + y, uv_right, uv_top);
+    sprite_pixel_vertex((bottomRightXRot) + x, (bottomRightYRot) + y, uv_left, uv_top);
     sgl_end();
   }
 
@@ -1349,10 +1385,10 @@ void engine_draw_texture_clip(double source_x, double source_y, double source_wi
   {
     sgl_begin_quads();
     sgl_c4f(alpha, alpha, alpha, alpha);
-    sgl_v2f_t2f(topLeftX + x, topLeftY + y, uv_left, uv_bottom);
-    sgl_v2f_t2f(topRightX + x, topRightY + y, uv_right, uv_bottom);
-    sgl_v2f_t2f(bottomLeftX + x, bottomLeftY + y, uv_right, uv_top);
-    sgl_v2f_t2f(bottomRightX + x, bottomRightY + y, uv_left, uv_top);
+    sprite_pixel_vertex(topLeftX + x, topLeftY + y, uv_left, uv_bottom);
+    sprite_pixel_vertex(topRightX + x, topRightY + y, uv_right, uv_bottom);
+    sprite_pixel_vertex(bottomLeftX + x, bottomLeftY + y, uv_right, uv_top);
+    sprite_pixel_vertex(bottomRightX + x, bottomRightY + y, uv_left, uv_top);
     sgl_end();
   }
   else
@@ -1371,10 +1407,10 @@ void engine_draw_texture_clip(double source_x, double source_y, double source_wi
 
     sgl_begin_quads();
     sgl_c4f(alpha, alpha, alpha, alpha);
-    sgl_v2f_t2f((topLeftXRot) + x, (topLeftYRot) + y, uv_left, uv_bottom);
-    sgl_v2f_t2f((topRightXRot) + x, (topRightYRot) + y, uv_right, uv_bottom);
-    sgl_v2f_t2f((bottomLeftXRot) + x, (bottomLeftYRot) + y, uv_right, uv_top);
-    sgl_v2f_t2f((bottomRightXRot) + x, (bottomRightYRot) + y, uv_left, uv_top);
+    sprite_pixel_vertex((topLeftXRot) + x, (topLeftYRot) + y, uv_left, uv_bottom);
+    sprite_pixel_vertex((topRightXRot) + x, (topRightYRot) + y, uv_right, uv_bottom);
+    sprite_pixel_vertex((bottomLeftXRot) + x, (bottomLeftYRot) + y, uv_right, uv_top);
+    sprite_pixel_vertex((bottomRightXRot) + x, (bottomRightYRot) + y, uv_left, uv_top);
     sgl_end();
   }
 }
@@ -1411,9 +1447,9 @@ static JSValue js_engine_draw_textured_triangle(JSContext *ctx, JSValueConst thi
   sgl_begin_triangles();
   sgl_c4f(alpha, alpha, alpha, alpha);
 
-  sgl_v2f_t2f(x1, y1, 0, uv_y);
-  sgl_v2f_t2f(x2, y2, uv_x, uv_y);
-  sgl_v2f_t2f(x3, y3, 0, 0);
+  sprite_pixel_vertex(x1, y1, 0, uv_y);
+  sprite_pixel_vertex(x2, y2, uv_x, uv_y);
+  sprite_pixel_vertex(x3, y3, 0, 0);
   sgl_end();
   return JS_UNDEFINED;
 }
@@ -2232,7 +2268,7 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("loadText", 2, js_engine_load_text),
     JS_CFUNC_DEF("loadWasm", 2, js_engine_load_wasm),
     JS_CFUNC_DEF("callWasm", 3, js_engine_call_wasm),
-    JS_CFUNC_DEF("setTexture", 1, js_engine_set_texture),
+    JS_CFUNC_DEF("setTexture", 2, js_engine_set_texture),
     JS_CFUNC_DEF("drawTexture", 7, js_engine_draw_texture),
 
     JS_CFUNC_DEF("drawTriangle", 10, js_engine_draw_triangle),
@@ -2288,6 +2324,7 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("getScreenBottom", 1, js_engine_get_screen_bottom),
     JS_CFUNC_DEF("getFrameDuration", 0, js_engine_get_frame_duration),
     JS_CFUNC_DEF("getFrameCount", 0, js_engine_get_frame_count),
+    JS_CFUNC_DEF("getPixelSize", 0, js_engine_get_pixel_size),
 
     JS_CFUNC_DEF("loadSound", 2, js_engine_load_sound),
     JS_CFUNC_DEF("playSound", 3, js_engine_play_sound),
@@ -2449,8 +2486,15 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
       .colors[0] = {.load_action = SG_LOADACTION_DONTCARE}};
 
   state.sampler = sg_make_sampler(&(sg_sampler_desc){
-      .min_filter = SG_FILTER_LINEAR,
-      .mag_filter = SG_FILTER_LINEAR,
+      .min_filter = SG_FILTER_NEAREST,
+      .mag_filter = SG_FILTER_NEAREST,
+      .wrap_u = SG_WRAP_CLAMP_TO_BORDER,
+      .wrap_v = SG_WRAP_CLAMP_TO_BORDER,
+      .wrap_w = SG_WRAP_CLAMP_TO_BORDER});
+
+  state.nearest_sampler = sg_make_sampler(&(sg_sampler_desc){
+      .min_filter = SG_FILTER_NEAREST,
+      .mag_filter = SG_FILTER_NEAREST,
       .wrap_u = SG_WRAP_CLAMP_TO_BORDER,
       .wrap_v = SG_WRAP_CLAMP_TO_BORDER,
       .wrap_w = SG_WRAP_CLAMP_TO_BORDER});

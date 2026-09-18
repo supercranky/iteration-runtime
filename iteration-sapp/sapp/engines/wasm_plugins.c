@@ -35,12 +35,16 @@ typedef struct iteration_native_plugin_api
   iteration_plugin_ptr iteration_##name##_alloc(uint32_t, uint32_t); \
   void iteration_##name##_free(iteration_plugin_ptr, uint32_t, uint32_t); \
   iteration_plugin_ptr iteration_##name##_call(uint32_t, iteration_plugin_ptr, uint32_t)
+#if defined(ITERATION_APPLICATION_PLUGINS)
+#include "iteration_application_plugins.h"
+#else
 ITERATION_DECLARE_NATIVE_PLUGIN(example);
 static const iteration_native_plugin_api native_plugin_registry[] = {
   {"example", iteration_example_abi_version, iteration_example_manifest_ptr,
    iteration_example_manifest_len, iteration_example_alloc, iteration_example_free,
    iteration_example_call}
 };
+#endif
 #endif
 
 typedef struct wasm_load_request
@@ -336,6 +340,8 @@ void wasm_plugins_shutdown(void)
   }
   native_plugin_count = 0;
   wasm_runtime_destroy();
+#elif defined(ITERATION_APPLICATION_PLUGINS)
+  iteration_application_plugins_shutdown();
 #endif
 }
 
