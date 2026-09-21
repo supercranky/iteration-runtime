@@ -136,6 +136,10 @@ static void init(void)
 
   /* setup sokol-gfx and the optional debug-ui*/
   sg_setup(&(sg_desc){
+      .image_pool_size = 512,
+      .view_pool_size = 512,
+      .buffer_pool_size = 512,
+      .pipeline_pool_size = 128,
       .environment = sglue_environment()});
   __dbgui_setup(sapp_sample_count());
 

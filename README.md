@@ -2,6 +2,21 @@
 
 A small JavaScript game runtime built with Sokol, QuickJS, NanoVG, and SoLoud. The primary target is WebAssembly/WebGL 2; native fips configurations are also retained.
 
+## Features
+
+- Embedded QuickJS runtime with an ES module-based JavaScript API
+- WebAssembly/WebGL 2 builds plus retained native and iOS configurations
+- Textured sprites, texture atlases, clipped drawing, and triangle rendering
+- NanoVG vector graphics, gradients, strokes, custom fonts, and text layout
+- glTF model loading, instancing, animation, cameras, lighting, and pixel styling
+- Configurable particle systems exposed directly to JavaScript
+- Sound loading and playback through SoLoud
+- Keyboard, mouse, touch, resize, and per-frame callbacks
+- Fixed-width, fixed-height, and cover viewport modes with pixel-size queries
+- Asynchronous loading for textures, text, fonts, sounds, models, and plugins
+- Versioned WebAssembly plugin ABI with typed values and buffered graphics commands
+- Monotonic timing, frame-duration, and frame-count APIs for animation and profiling
+
 ## Requirements
 
 Install these tools first:

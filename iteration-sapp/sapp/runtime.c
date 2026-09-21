@@ -63,6 +63,7 @@
 #include "plugins/iteration_plugin.h"
 #include "particles/particle_system.h"
 #include "particles/particle_js.h"
+#include "models/models.h"
 
 static uint32_t min_layers_texture(void);
 
@@ -2347,7 +2348,19 @@ static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t si
   return 1;
 }
 
+// Both layers are recorded before either is uploaded. Layer 1 is reserved
+// for sprites that must cover native props (for example the player).
+static JSValue js_engine_set_sprite_foreground(JSContext *ctx, JSValueConst this_val,
+                                               int argc, JSValueConst *argv)
+{
+  (void)this_val;
+  sgl_layer(argc > 0 && JS_ToBool(ctx, argv[0]) ? 1 : 0);
+  set_viewport();
+  return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry js_my_module_funcs[] = {
+    JS_CFUNC_DEF("setSpriteForeground", 1, js_engine_set_sprite_foreground),
     JS_CFUNC_DEF("loadTexture", 2, js_engine_load_texture),
     JS_CFUNC_DEF("loadText", 2, js_engine_load_text),
     JS_CFUNC_DEF("loadWasm", 2, js_engine_load_wasm),
@@ -2414,6 +2427,18 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("playSound", 3, js_engine_play_sound),
 
     JS_CFUNC_DEF("loadFont", 2, js_engine_load_font),
+
+    JS_CFUNC_DEF("loadModel", 2, js_models_load),
+    JS_CFUNC_DEF("unloadModel", 1, js_models_unload),
+    JS_CFUNC_DEF("createModelInstance", 1, js_models_create),
+    JS_CFUNC_DEF("destroyModelInstance", 1, js_models_destroy),
+    JS_CFUNC_DEF("drawModel", 8, js_models_draw),
+    JS_CFUNC_DEF("setModelPixelStyle", 4, js_models_set_pixel_style),
+    JS_CFUNC_DEF("playModelAnimation", 5, js_models_play),
+    JS_CFUNC_DEF("stopModelAnimation", 1, js_models_stop),
+    JS_CFUNC_DEF("setModelAnimationTime", 2, js_models_set_time),
+    JS_CFUNC_DEF("setModelCamera", 2, js_models_set_camera),
+    JS_CFUNC_DEF("setModelLighting", 2, js_models_set_lighting),
 
 };
 
@@ -2494,6 +2519,7 @@ void engine_shutdown()
   if(particle_mask.vao)glDeleteVertexArrays(1,&particle_mask.vao);
   memset(&particle_mask,0,sizeof(particle_mask));
 #endif
+  models_shutdown();
   particle_js_shutdown();
   wasm_plugins_shutdown();
   min_layers_shutdown();
@@ -2522,6 +2548,8 @@ void engine_frame()
       .action = state.pass_action,
       .swapchain = sglue_swapchain()});
 
+  models_update(sapp_frame_duration());
+
   if (JS_IsFunction(state.ctx, engine_get_frame_callback()))
   {
     JS_Call(state.ctx, engine_get_frame_callback(), JS_UNDEFINED, 0, NULL);
@@ -2535,11 +2563,20 @@ void engine_frame()
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
   particle_mask_present();
 #endif
-  sgl_draw();
+  sgl_draw_layer(0);
+  sg_end_pass();
+  models_render();
+  sg_begin_pass(&(sg_pass){.swapchain=sglue_swapchain(),.action={
+      .colors[0].load_action=SG_LOADACTION_LOAD,
+      .depth.load_action=SG_LOADACTION_LOAD,
+      .stencil.load_action=SG_LOADACTION_LOAD}});
+  sgl_draw_layer(1);
   //__dbgui_draw();
 
   sg_end_pass();
   sg_commit();
+  // NanoVG uses raw GL and must not inherit model sampler/depth state.
+  sg_reset_state_cache();
 
   if (state.vg != NULL)
   {
@@ -2618,6 +2655,7 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
           .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA}});
 
   state.ctx = ctx;
+  models_init(ctx);
   wasm_plugins_init(ctx, engine_execute_plugin_render_commands);
 
   if (JS_SetModuleExportList(ctx, m, js_my_module_funcs, countof(js_my_module_funcs)) < 0)
