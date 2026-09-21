@@ -13,6 +13,8 @@ fips_files(lib/)
 fips_files(iteration-sapp.c)
 
 fips_files(runtime.c)
+fips_files(particles/particle_system.c particles/particle_system.h)
+fips_files(particles/particle_js.c particles/particle_js.h)
 fips_files(engines/engines.c)
 fips_files(engines/wasm_plugins.c engines/wasm_plugins.h)
 fips_files(plugins/iteration_plugin.h)

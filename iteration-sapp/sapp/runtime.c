@@ -61,6 +61,10 @@
 #include "engines/engines.h"
 #include "engines/wasm_plugins.h"
 #include "plugins/iteration_plugin.h"
+#include "particles/particle_system.h"
+#include "particles/particle_js.h"
+
+static uint32_t min_layers_texture(void);
 
 #define FETCH_BUFFER_SIZE 1024 * 1024
 
@@ -118,6 +122,7 @@ typedef struct
 {
   JSValue callback;
   JSValue parameter;
+  uint32_t particle_id;
 } load_callback;
 
 JSValue engine_get_frame_callback()
@@ -916,8 +921,28 @@ static JSValue js_engine_load_texture(JSContext *ctx, JSValueConst this_val,
           .ptr = buffer,
           .size = FETCH_BUFFER_SIZE},
       .user_data = {.ptr = new_callback, .size = sizeof(*new_callback)}});
+  js_free(ctx, new_callback);
 
   return JS_UNDEFINED;
+}
+
+void engine_request_particle_texture(const char *filename, uint32_t particle_id)
+{
+  if (!filename || !*filename || state.loaded_textures >= 256) return;
+  load_callback *request = js_mallocz(state.ctx, sizeof(*request));
+  if (!request) return;
+  request->callback = JS_UNDEFINED;
+  request->parameter = JS_UNDEFINED;
+  request->particle_id = particle_id;
+  char *buffer = malloc(FETCH_BUFFER_SIZE);
+  char path_buf[512];
+  if (!buffer) { js_free(state.ctx, request); return; }
+  sfetch_send(&(sfetch_request_t){
+      .path = fileutil_get_path(filename, path_buf, sizeof(path_buf)),
+      .callback = fetch_engine_load_texture_callback,
+      .buffer = {.ptr = buffer, .size = FETCH_BUFFER_SIZE},
+      .user_data = {.ptr = request, .size = sizeof(*request)}});
+  js_free(state.ctx, request);
 }
 
 static JSValue js_engine_load_sound(JSContext *ctx, JSValueConst this_val,
@@ -1413,6 +1438,49 @@ void engine_draw_texture_clip(double source_x, double source_y, double source_wi
     sprite_pixel_vertex((bottomRightXRot) + x, (bottomRightYRot) + y, uv_left, uv_top);
     sgl_end();
   }
+}
+
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+static struct {
+  NVGcontext *vg;
+  NVGLUframebuffer *particles, *masked;
+  GLuint program, vao;
+  int source_images[256], output_image, width, height;
+  GLint framebuffer, viewport[4];
+  float threshold, softness;
+  int active, accumulated;
+} particle_mask;
+
+static GLuint particle_mask_shader(GLenum type,const char*source){GLuint shader=glCreateShader(type);glShaderSource(shader,1,&source,NULL);glCompileShader(shader);GLint ok=0;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);if(!ok){glDeleteShader(shader);return 0;}return shader;}
+static void particle_mask_targets_free(void){if(particle_mask.output_image)nvgDeleteImage(state.vg,particle_mask.output_image);if(particle_mask.particles)nvgluDeleteFramebuffer(particle_mask.particles);if(particle_mask.masked)nvgluDeleteFramebuffer(particle_mask.masked);particle_mask.output_image=0;particle_mask.particles=particle_mask.masked=NULL;}
+static int particle_mask_prepare(void){int width=sapp_width(),height=sapp_height();if(!particle_mask.vg)particle_mask.vg=nvgCreateGLES2(NVG_ANTIALIAS|NVG_STENCIL_STROKES);if(!particle_mask.vg)return 0;if(!particle_mask.program){GLuint vs=particle_mask_shader(GL_VERTEX_SHADER,"#version 300 es\nout vec2 uv;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);uv=p;gl_Position=vec4(p*2.-1.,0,1);}");GLuint fs=particle_mask_shader(GL_FRAGMENT_SHADER,"#version 300 es\nprecision highp float;in vec2 uv;uniform sampler2D particles;uniform sampler2D darkness;uniform float threshold;uniform float softness;out vec4 color;void main(){vec4 p=texture(particles,uv);float light=1.0-texture(darkness,uv).a;float visibility=smoothstep(threshold,threshold+max(softness,0.0001),light);color=p*visibility;}");if(!vs||!fs)return 0;particle_mask.program=glCreateProgram();glAttachShader(particle_mask.program,vs);glAttachShader(particle_mask.program,fs);glLinkProgram(particle_mask.program);glDeleteShader(vs);glDeleteShader(fs);GLint ok=0;glGetProgramiv(particle_mask.program,GL_LINK_STATUS,&ok);if(!ok)return 0;glGenVertexArrays(1,&particle_mask.vao);}if(!particle_mask.particles||width!=particle_mask.width||height!=particle_mask.height){particle_mask_targets_free();particle_mask.particles=nvgluCreateFramebuffer(particle_mask.vg,width,height,0);particle_mask.masked=nvgluCreateFramebuffer(particle_mask.vg,width,height,0);if(!particle_mask.particles||!particle_mask.masked)return 0;particle_mask.output_image=nvglCreateImageFromHandleGLES2(state.vg,particle_mask.masked->texture,width,height,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);particle_mask.width=width;particle_mask.height=height;}return particle_mask.output_image!=0;}
+static int particle_mask_begin(int texture_id,float threshold,float softness){uint32_t darkness=min_layers_texture();if(!darkness)return 0;glGetIntegerv(GL_FRAMEBUFFER_BINDING,&particle_mask.framebuffer);glGetIntegerv(GL_VIEWPORT,particle_mask.viewport);if(!particle_mask_prepare()){glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();return 0;}glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.particles->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_SCISSOR_TEST);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);nvgBeginFrame(particle_mask.vg,sapp_width(),sapp_height(),sapp_dpi_scale());particle_mask.threshold=threshold;particle_mask.softness=softness;if(!particle_mask.source_images[texture_id]){sg_gl_image_info info=sg_gl_query_image_info(state.textures[texture_id]);particle_mask.source_images[texture_id]=nvglCreateImageFromHandleGLES2(particle_mask.vg,info.tex[info.active_slot],state.texture_sizes[texture_id].widthTexture,state.texture_sizes[texture_id].heightTexture,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);}return particle_mask.source_images[texture_id]!=0;}
+static void particle_mask_draw(int texture_id,int texture_width,int texture_height,float x,float y,float rotation,float size,float opacity){float sx=convert_local_x_to_screen(x),sy=convert_local_y_to_screen(y),w=scale_local_to_screen(size),h=texture_width>0?w*(float)texture_height/(float)texture_width:w;nvgSave(particle_mask.vg);nvgTranslate(particle_mask.vg,sx,sy);nvgRotate(particle_mask.vg,rotation);nvgGlobalAlpha(particle_mask.vg,opacity);nvgBeginPath(particle_mask.vg);nvgRect(particle_mask.vg,-w*.5f,-h*.5f,w,h);NVGpaint paint=nvgImagePattern(particle_mask.vg,-w*.5f,-h*.5f,w,h,0,particle_mask.source_images[texture_id],1);nvgFillPaint(particle_mask.vg,paint);nvgFill(particle_mask.vg);nvgRestore(particle_mask.vg);}
+static void particle_mask_end(void){nvgEndFrame(particle_mask.vg);glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.masked->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);if(!particle_mask.accumulated){glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);glUseProgram(particle_mask.program);glBindVertexArray(particle_mask.vao);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,particle_mask.particles->texture);glUniform1i(glGetUniformLocation(particle_mask.program,"particles"),0);glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,min_layers_texture());glUniform1i(glGetUniformLocation(particle_mask.program,"darkness"),1);glUniform1f(glGetUniformLocation(particle_mask.program,"threshold"),particle_mask.threshold);glUniform1f(glGetUniformLocation(particle_mask.program,"softness"),particle_mask.softness);glDrawArrays(GL_TRIANGLES,0,3);glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();particle_mask.accumulated=1;}
+/* NanoVG defers texture reads until end-frame. Present the accumulated rooms
+   once, after every system has finished writing to this frame's target. */
+static void particle_mask_present(void){if(!particle_mask.accumulated)return;nvgSave(state.vg);nvgResetTransform(state.vg);nvgBeginPath(state.vg);nvgRect(state.vg,0,0,sapp_width(),sapp_height());NVGpaint paint=nvgImagePattern(state.vg,0,0,sapp_width(),sapp_height(),0,particle_mask.output_image,1);paint.xform[3]=-1;paint.xform[5]=(float)sapp_height();nvgFillPaint(state.vg,paint);nvgFill(state.vg);nvgRestore(state.vg);}
+#endif
+
+static void engine_draw_particle(int phase, int texture_id, int texture_width, int texture_height,
+                                 float x, float y, float rotation, float size, float opacity,
+                                 int mask_direct_light, float mask_threshold, float mask_softness)
+{
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  if(mask_direct_light){if(phase==0){particle_mask.active=particle_mask_begin(texture_id,mask_threshold,mask_softness);return;}if(phase==2){if(particle_mask.active)particle_mask_end();particle_mask.active=0;return;}if(particle_mask.active)particle_mask_draw(texture_id,texture_width,texture_height,x,y,rotation,size,opacity);return;}
+#else
+  (void)mask_direct_light;(void)mask_threshold;(void)mask_softness;
+#endif
+  if (phase == 0) { engine_set_texture(texture_id); sgl_begin_quads(); return; }
+  if (phase == 2) { sgl_end(); return; }
+  float hx = size * .001f;
+  float hy = texture_width > 0 ? hx * (float)texture_height / (float)texture_width : hx;
+  float px = x * .002f, py = -y * .002f;
+  float cs = cosf(-rotation), sn = sinf(-rotation);
+  float corners[8] = {-hx,-hy, hx,-hy, hx,hy, -hx,hy};
+  const float uv[8] = {0,1, 1,1, 1,0, 0,0};
+  sgl_c4f(opacity, opacity, opacity, opacity);
+  for (int i=0;i<4;i++) { float cx=corners[i*2],cy=corners[i*2+1];sprite_pixel_vertex(px+cx*cs-cy*sn,py+cx*sn+cy*cs,uv[i*2],uv[i*2+1]); }
 }
 
 static JSValue js_engine_draw_textured_triangle(JSContext *ctx, JSValueConst this_val,
@@ -1940,6 +2008,15 @@ static void fetch_engine_load_texture_callback(const sfetch_response_t *response
         &png_width, &png_height,
         &num_channels, desired_channels);
 
+    if (!pixels) {
+      SOKOL_LOG("loadTexture invalid image");
+      load_callback *callback = (load_callback *)response->user_data;
+      JS_FreeValue(state.ctx, callback->callback);
+      JS_FreeValue(state.ctx, callback->parameter);
+      free(response->data.ptr);
+      return;
+    }
+
     // premultiply alpha
     for (int i = 0; i < png_width * png_height * 4; i += 4)
     {
@@ -2025,21 +2102,23 @@ static void fetch_engine_load_texture_callback(const sfetch_response_t *response
     JSValue height = JS_NewInt32(state.ctx, powerHeight);
 
     JS_SetPropertyStr(state.ctx, texture, "id", id);
-    JS_SetPropertyStr(state.ctx, texture, "name", callback->parameter);
+    JS_SetPropertyStr(state.ctx, texture, "name", JS_DupValue(state.ctx, callback->parameter));
     JS_SetPropertyStr(state.ctx, texture, "width", width);
     JS_SetPropertyStr(state.ctx, texture, "height", height);
     JS_SetPropertyStr(state.ctx, texture, "widthPixels", widthPixels);
     JS_SetPropertyStr(state.ctx, texture, "heightPixels", heightPixels);
 
-    JS_Call(state.ctx, callback->callback, JS_UNDEFINED, 1, (JSValueConst *)&texture);
-    // SOKOL_LOG(JS_ToCString(state.ctx, callback->callback));
-
+    if (callback->particle_id)
+      particle_system_set_texture(callback->particle_id, state.loaded_textures, png_width, png_height);
+    if (JS_IsFunction(state.ctx, callback->callback)) {
+      JSValue result = JS_Call(state.ctx, callback->callback, JS_UNDEFINED, 1, (JSValueConst *)&texture);
+      if (JS_IsException(result)) js_std_dump_error(state.ctx);
+      JS_FreeValue(state.ctx, result);
+    }
+    JS_FreeValue(state.ctx, texture);
+    JS_FreeValue(state.ctx, callback->callback);
+    JS_FreeValue(state.ctx, callback->parameter);
     state.loaded_textures++;
-
-    // JS_FreeValue(state.ctx, callback->callback);
-    // js_free(state.ctx, callback);
-
-    // printf();
   }
   else if (response->failed)
   {
@@ -2047,6 +2126,11 @@ static void fetch_engine_load_texture_callback(const sfetch_response_t *response
     SOKOL_LOG("loadTexture texture error");
 
     // if loading the file failed, set clear color to red
+  }
+  if (response->failed) {
+    load_callback *callback = (load_callback *)response->user_data;
+    JS_FreeValue(state.ctx, callback->callback);
+    JS_FreeValue(state.ctx, callback->parameter);
   }
   free(response->data.ptr);
 }
@@ -2402,6 +2486,15 @@ void drawButton(NVGcontext *vg, int preicon, const char *text, float x, float y,
 
 void engine_shutdown()
 {
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  particle_mask_targets_free();
+  for(int i=0;i<256;i++)if(particle_mask.source_images[i])nvgDeleteImage(particle_mask.vg,particle_mask.source_images[i]);
+  if(particle_mask.vg)nvgDeleteGLES2(particle_mask.vg);
+  if(particle_mask.program)glDeleteProgram(particle_mask.program);
+  if(particle_mask.vao)glDeleteVertexArrays(1,&particle_mask.vao);
+  memset(&particle_mask,0,sizeof(particle_mask));
+#endif
+  particle_js_shutdown();
   wasm_plugins_shutdown();
   min_layers_shutdown();
 }
@@ -2434,6 +2527,14 @@ void engine_frame()
     JS_Call(state.ctx, engine_get_frame_callback(), JS_UNDEFINED, 0, NULL);
   }
 
+  particle_system_update_all((float)sapp_frame_duration());
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  particle_mask.accumulated=0;
+#endif
+  particle_system_render_all(engine_draw_particle);
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  particle_mask_present();
+#endif
   sgl_draw();
   //__dbgui_draw();
 
@@ -2519,7 +2620,9 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
   state.ctx = ctx;
   wasm_plugins_init(ctx, engine_execute_plugin_render_commands);
 
-  return JS_SetModuleExportList(ctx, m, js_my_module_funcs, countof(js_my_module_funcs));
+  if (JS_SetModuleExportList(ctx, m, js_my_module_funcs, countof(js_my_module_funcs)) < 0)
+    return -1;
+  return JS_SetModuleExport(ctx, m, "particles", particle_js_create_api(ctx));
 }
 
 JSModuleDef *js_init_module_engine(JSContext *ctx, const char *module_name)
@@ -2531,5 +2634,6 @@ JSModuleDef *js_init_module_engine(JSContext *ctx, const char *module_name)
     return NULL;
 
   JS_AddModuleExportList(ctx, m, js_my_module_funcs, countof(js_my_module_funcs));
+  JS_AddModuleExport(ctx, m, "particles");
   return m;
 }

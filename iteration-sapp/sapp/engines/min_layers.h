@@ -6,6 +6,8 @@ static struct {
   GLuint program, vao;
   GLint framebuffer, viewport[4];
   int image, width, height, active, group;
+  uint64_t completed_frame;
+  int completed;
 } min_layers;
 
 static GLuint min_layer_shader(GLenum type, const char *source)
@@ -71,7 +73,7 @@ static void min_layers_restore(void)
 static int min_layers_begin(NVGcontext **vg, int reset)
 {
   if (min_layers.active || (!reset && !min_layers.group)) return 0;
-  if (reset) min_layers.group=1;
+  if (reset) { min_layers.group=1; min_layers.completed=0; }
   glGetIntegerv(GL_FRAMEBUFFER_BINDING, &min_layers.framebuffer);
   glGetIntegerv(GL_VIEWPORT, min_layers.viewport);
   if (!min_layers_prepare(*vg,sapp_width(),sapp_height())) { min_layers_restore(); return 0; }
@@ -106,6 +108,8 @@ static int min_layers_end(NVGcontext **vg, int present)
   min_layers_restore();
   if (present) {
     min_layers.group=0;
+    min_layers.completed=1;
+    min_layers.completed_frame=sapp_frame_count();
     nvgSave(*vg);nvgResetTransform(*vg);
     nvgBeginPath(*vg);nvgRect(*vg,0,0,sapp_width(),sapp_height());
     NVGpaint paint=nvgImagePattern(*vg,0,0,sapp_width(),sapp_height(),0,min_layers.image,1);
@@ -122,10 +126,12 @@ static void min_layers_abort(NVGcontext **vg)
   min_layers.active=0;min_layers.group=0;
 }
 static int min_layers_balanced(void){return !min_layers.active;}
+static uint32_t min_layers_texture(void){return min_layers.completed && min_layers.completed_frame==sapp_frame_count() && min_layers.combined ? (uint32_t)min_layers.combined->texture : 0;}
 #else
 static int min_layers_begin(NVGcontext **vg,int reset){(void)vg;(void)reset;return 0;}
 static int min_layers_end(NVGcontext **vg,int present){(void)vg;(void)present;return 0;}
 static void min_layers_shutdown(void){}
 static void min_layers_abort(NVGcontext **vg){(void)vg;}
 static int min_layers_balanced(void){return 1;}
+static uint32_t min_layers_texture(void){return 0;}
 #endif

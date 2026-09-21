@@ -1,4 +1,5 @@
 #include "quickjs.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -19,6 +20,7 @@ extern "C"
 
   void engine_draw_texture_clip(double source_x, double source_y, double source_width, double source_height, double x, double y, double anchor_x, double anchor_y, double rotation, double scale, double alpha);
   void engine_set_texture(int texture);
+  void engine_request_particle_texture(const char *filename, uint32_t particle_id);
 
 #define ITER_VIEWPORT_COVER 0
 #define ITER_VIEWPORT_FIXED_WIDTH 1
