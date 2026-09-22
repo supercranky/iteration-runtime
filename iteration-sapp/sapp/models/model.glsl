@@ -106,7 +106,7 @@ layout(binding=0) uniform texture2D model_color;
 layout(binding=0) uniform sampler pixel_sampler;
 layout(binding=2) uniform pixel_style_params {
     vec4 palette[64];
-    // palette count, silhouette outline enabled, reserved, reserved
+    // palette count, silhouette outline enabled, dither strength, reserved
     vec4 style;
     // supersample factor (1 or 2), backend render-target Y flip, unused, unused
     vec4 options;
@@ -137,10 +137,12 @@ void main() {
     vec4 base = color_at(p);
     ivec2 dirs[4] = ivec2[4](ivec2(-1,0), ivec2(1,0), ivec2(0,-1), ivec2(0,1));
     bool silhouette = false;
+    bool boundary = false;
     for (int i = 0; i < 4; i++) {
         ivec2 q = p + dirs[i];
         vec4 neighbor = color_at(q);
         if (base.a < 0.5 && neighbor.a > 0.5) silhouette = true;
+        if (neighbor.a < 0.5) boundary = true;
     }
     // Only transparent texels neighboring coverage get an outline. Never
     // overwrite an opaque texel at a normal, depth, material or lid seam.
@@ -150,12 +152,39 @@ void main() {
     }
     if (base.a < 0.5) discard;
     vec3 chosen = base.rgb;
+    vec3 alternate = base.rgb;
     float best = 1e10;
+    float second = 1e10;
     for (int i = 0; i < 64; i++) {
         if (float(i) >= style.x) break;
         vec3 delta = base.rgb - palette[i].rgb;
         float distance = dot(delta * delta, vec3(0.299, 0.587, 0.114));
-        if (distance < best) { best = distance; chosen = palette[i].rgb; }
+        if (distance < best) {
+            second = best; alternate = chosen;
+            best = distance; chosen = palette[i].rgb;
+        } else if (distance < second) {
+            second = distance; alternate = palette[i].rgb;
+        }
+    }
+    if (style.z > 0.0 && style.x >= 2.0 && !boundary) {
+        // Mix only the two nearest palette colors, and only when their mixture
+        // genuinely improves the color match. Exact matches remain flat clusters.
+        vec3 weights = vec3(0.299, 0.587, 0.114);
+        vec3 span = alternate - chosen;
+        float length2 = dot(span * span, weights);
+        float mix_amount = clamp(dot((base.rgb - chosen) * span, weights) / max(length2, 0.000001), 0.0, 0.5);
+        vec3 residual = base.rgb - mix(chosen, alternate, mix_amount);
+        float mixed_error = dot(residual * residual, weights);
+        // Avoid high-contrast speckles or unrelated hue pairs. Retain unbroken
+        // silhouette pixels and apply no dithering at all to black outlines.
+        if (length2 < 0.12 && mix_amount > 0.08 && mixed_error < best * 0.8) {
+            // Artist-like 25%/50% checker patches only. Tiny residual errors
+            // stay flat instead of becoming isolated Bayer dots across a face.
+            float amount = mix_amount * style.z;
+            bool quarter = ((p.x & 1) == 0) && ((p.y & 1) == 0);
+            bool checker = ((p.x + p.y) & 1) == 0;
+            if ((amount >= 0.375 && checker) || (amount >= 0.1875 && amount < 0.375 && quarter)) chosen = alternate;
+        }
     }
     frag_color = vec4(chosen, 1.0);
 }

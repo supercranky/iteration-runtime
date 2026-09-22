@@ -87,11 +87,13 @@ typedef struct { int asset; uint8_t *bytes; } ModelRequest;
 typedef struct {
     int id;
     double x, y, height, scale, rotation, pixel_size;
+    int sprite_layer; // Complete sprite batch preceding this model in Y order.
     int light_count; // -1: fixed preview light; 0..4: scene point lights
     float lights[4][9]; // relative x,height,z, inner/outer radius, RGB, intensity
 } ModelDraw;
 static ModelDraw draw_queue[MODEL_INSTANCES];
 static int draw_count;
+static int world_sprite_last_layer;
 
 static struct {
     JSContext *ctx;
@@ -356,6 +358,10 @@ JSValue js_models_set_pixel_style(JSContext *ctx,JSValueConst self,int argc,JSVa
     int antialias=argc>3?JS_ToBool(ctx,argv[3]):0;
     if(antialias<0)return JS_EXCEPTION;
     style.options[0]=antialias?2.0f:1.0f;
+    double dither=0;
+    if(argc>4 && !JS_IsUndefined(argv[4]) && JS_ToFloat64(ctx,&dither,argv[4]))return JS_EXCEPTION;
+    if(!isfinite(dither)||dither<0||dither>1)return JS_ThrowRangeError(ctx,"dither strength must be 0..1");
+    style.style[2]=(float)dither;
     if(models.pixel_style.options[0]!=style.options[0])resize_pixel_targets((int)style.options[0]);
     models.pixel_style=style;models.pixel_enabled=enabled;
     return JS_UNDEFINED;
@@ -384,6 +390,10 @@ JSValue js_models_draw(JSContext *ctx,JSValueConst t,int argc,JSValueConst *argv
             draw.lights[i/9][i%9]=(float)number;
         }
     }
+    if(argc>8 && !JS_IsUndefined(argv[8])) {
+        if(JS_ToInt32(ctx,&draw.sprite_layer,argv[8]))return JS_EXCEPTION;
+        if(draw.sprite_layer<0||draw.sprite_layer>MODEL_INSTANCES+2)return JS_ThrowRangeError(ctx,"invalid sprite layer");
+    }
     draw_queue[draw_count++]=draw;
     return JS_UNDEFINED;
 }
@@ -408,18 +418,33 @@ static void render_model(ModelDraw draw, int pixel) {
         sg_apply_pipeline(models.pipelines[m->double_sided?1:0][pixel][m->alpha]);sg_bindings bind={0};bind.vertex_buffers[0]=p->vertices;bind.index_buffer=p->indices;bind.views[VIEW_base_color_tex]=m->view.id?m->view:models.white_view;bind.samplers[SMP_base_color_smp]=models.sampler;sg_apply_bindings(&bind);sg_apply_uniforms(UB_model_vs_params,&SG_RANGE(vs));sg_apply_uniforms(UB_model_fs_params,&SG_RANGE(fs));sg_draw(0,(int)p->index_count,1);}}
 }
 
+JSValue js_models_set_last_layer(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv) {
+    (void)self;
+    int layer;
+    if(argc<1||JS_ToInt32(ctx,&layer,argv[0]))return JS_EXCEPTION;
+    if(layer<0||layer>MODEL_INSTANCES+2)return JS_ThrowRangeError(ctx,"invalid final sprite layer");
+    world_sprite_last_layer=layer;
+    return JS_UNDEFINED;
+}
+
 // Called between passes, never inside the sprite pass. All sprite commands
 // have already been uploaded once; foreground sprites are drawn after this.
 static void begin_model_composite(void) {
     sg_begin_pass(&(sg_pass){.swapchain=sglue_swapchain(),.action={
         .colors[0].load_action=SG_LOADACTION_LOAD,
-        .depth.load_action=SG_LOADACTION_LOAD,
+        // Props are painter-sorted in 2D; only their own triangles share depth.
+        .depth={.load_action=SG_LOADACTION_CLEAR,.clear_value=1.0f},
         .stencil.load_action=SG_LOADACTION_LOAD}});
 }
 
 void models_render(void) {
     for(int i=0;i<draw_count;i++) {
         ModelDraw draw=draw_queue[i];
+        if(draw.sprite_layer>=2) {
+            begin_model_composite();
+            sgl_draw_layer(draw.sprite_layer);
+            sg_end_pass();
+        }
         if(!models.pixel_enabled || draw.pixel_size==0) {
             begin_model_composite();
             render_model(draw,0);
@@ -457,5 +482,11 @@ void models_render(void) {
         sg_draw(0,3,1);
         sg_end_pass();
     }
+    if(world_sprite_last_layer>=2) {
+        begin_model_composite();
+        sgl_draw_layer(world_sprite_last_layer);
+        sg_end_pass();
+    }
+    world_sprite_last_layer=0;
     draw_count=0;
 }

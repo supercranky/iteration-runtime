@@ -2359,7 +2359,20 @@ static JSValue js_engine_set_sprite_foreground(JSContext *ctx, JSValueConst this
   return JS_UNDEFINED;
 }
 
+static JSValue js_engine_set_sprite_layer(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv)
+{
+  (void)self;
+  int layer;
+  if(argc<1||JS_ToInt32(ctx,&layer,argv[0]))return JS_EXCEPTION;
+  if(layer<0||layer>130)return JS_ThrowRangeError(ctx,"sprite layer must be 0..130");
+  sgl_layer(layer);
+  set_viewport();
+  return JS_UNDEFINED;
+}
+
 static const JSCFunctionListEntry js_my_module_funcs[] = {
+    JS_CFUNC_DEF("setSpriteLayer", 1, js_engine_set_sprite_layer),
+    JS_CFUNC_DEF("setWorldSpriteLastLayer", 1, js_models_set_last_layer),
     JS_CFUNC_DEF("setSpriteForeground", 1, js_engine_set_sprite_foreground),
     JS_CFUNC_DEF("loadTexture", 2, js_engine_load_texture),
     JS_CFUNC_DEF("loadText", 2, js_engine_load_text),
@@ -2432,8 +2445,8 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("unloadModel", 1, js_models_unload),
     JS_CFUNC_DEF("createModelInstance", 1, js_models_create),
     JS_CFUNC_DEF("destroyModelInstance", 1, js_models_destroy),
-    JS_CFUNC_DEF("drawModel", 8, js_models_draw),
-    JS_CFUNC_DEF("setModelPixelStyle", 4, js_models_set_pixel_style),
+    JS_CFUNC_DEF("drawModel", 9, js_models_draw),
+    JS_CFUNC_DEF("setModelPixelStyle", 5, js_models_set_pixel_style),
     JS_CFUNC_DEF("playModelAnimation", 5, js_models_play),
     JS_CFUNC_DEF("stopModelAnimation", 1, js_models_stop),
     JS_CFUNC_DEF("setModelAnimationTime", 2, js_models_set_time),

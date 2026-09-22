@@ -4,6 +4,7 @@
 void models_init(JSContext *ctx);
 void models_update(double dt);
 void models_render(void);
+JSValue js_models_set_last_layer(JSContext *, JSValueConst, int, JSValueConst *);
 void models_shutdown(void);
 
 JSValue js_models_load(JSContext *, JSValueConst, int, JSValueConst *);
