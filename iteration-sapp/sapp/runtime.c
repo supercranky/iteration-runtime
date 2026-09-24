@@ -1293,14 +1293,27 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
   JS_ToFloat64(ctx, &rotation, argv[8]);
   JS_ToFloat64(ctx, &scale, argv[9]);
   JS_ToFloat64(ctx, &alpha, argv[10]);
-
-  // SOKOL_LOG("%d %d %d %d", source_x, source_y, (int)source_width, source_height);
+  // Optional flags preserve the existing 11-argument API. Flip only UVs,
+  // leaving geometry, winding, anchors, rotation and pixel snapping unchanged.
+  int flip_x = argc > 11 ? JS_ToBool(ctx, argv[11]) : 0;
+  int flip_y = argc > 12 ? JS_ToBool(ctx, argv[12]) : 0;
+  if (flip_x < 0 || flip_y < 0) return JS_EXCEPTION;
 
   double uv_left = source_x / widthTexture;
   double uv_top = source_y / heightTexture;
 
   double uv_right = uv_left + source_width / widthTexture;
   double uv_bottom = uv_top + source_height / heightTexture;
+  if (flip_x) {
+    double tmp = uv_left;
+    uv_left = uv_right;
+    uv_right = tmp;
+  }
+  if (flip_y) {
+    double tmp = uv_top;
+    uv_top = uv_bottom;
+    uv_bottom = tmp;
+  }
 
   x = x * 0.002;
   y = -y * 0.002;
@@ -1886,9 +1899,43 @@ static JSValue js_engine_graphics_text_box(JSContext *ctx, JSValueConst this_val
   x = convert_local_x_to_screen(x);
   y = convert_local_y_to_screen(y);
 
+  // Width is a logical distance, just like graphicsFontSize and graphicsRect.
+  row_width = scale_local_to_screen(row_width);
   text = JS_ToCString(ctx, argv[3]);
+  if (!text) return JS_EXCEPTION;
 
-  nvgTextBox(state.vg, x, y, row_width, text, NULL);
+  if (argc > 4 && !JS_IsUndefined(argv[4])) {
+    int32_t visible;
+    if (JS_ToInt32(ctx, &visible, argv[4]) < 0) {
+      JS_FreeCString(ctx, text);
+      return JS_EXCEPTION;
+    }
+    // Find a UTF-8 code-point boundary, matching Array.from(text) in JavaScript.
+    const char *visible_end = text;
+    for (int32_t i = 0; i < visible && *visible_end; i++) {
+      visible_end++;
+      while ((*visible_end & 0xc0) == 0x80) visible_end++;
+    }
+    // Break the COMPLETE passage, never the animated prefix. Use bounded row
+    // batches and public NanoVG APIs so a partially revealed word cannot reflow.
+    NVGtextRow rows[2];
+    float line_height;
+    nvgTextMetrics(state.vg, NULL, NULL, &line_height);
+    const char *cursor = text;
+    int count;
+    while (cursor < visible_end && (count = nvgTextBreakLines(state.vg, cursor, NULL, row_width, rows, 2)) > 0) {
+      for (int i = 0; i < count; i++) {
+        if (rows[i].start >= visible_end) break;
+        const char *end = rows[i].end < visible_end ? rows[i].end : visible_end;
+        nvgTextBox(state.vg, x, y, row_width, rows[i].start, end);
+        y += line_height;
+      }
+      cursor = rows[count - 1].next;
+    }
+  } else {
+    nvgTextBox(state.vg, x, y, row_width, text, NULL);
+  }
+  JS_FreeCString(ctx, text);
   return JS_UNDEFINED;
 }
 
@@ -2364,7 +2411,7 @@ static JSValue js_engine_set_sprite_layer(JSContext *ctx,JSValueConst self,int a
   (void)self;
   int layer;
   if(argc<1||JS_ToInt32(ctx,&layer,argv[0]))return JS_EXCEPTION;
-  if(layer<0||layer>130)return JS_ThrowRangeError(ctx,"sprite layer must be 0..130");
+  if(layer<0||layer>131)return JS_ThrowRangeError(ctx,"sprite layer must be 0..131");
   sgl_layer(layer);
   set_viewport();
   return JS_UNDEFINED;
@@ -2587,7 +2634,6 @@ void engine_frame()
   //__dbgui_draw();
 
   sg_end_pass();
-  sg_commit();
   // NanoVG uses raw GL and must not inherit model sampler/depth state.
   sg_reset_state_cache();
 
@@ -2596,6 +2642,14 @@ void engine_frame()
     nvgEndFrame(state.vg);
     sg_reset_state_cache();
   }
+  // Reserved UI sprite layer: portraits/icons must sit above NanoVG panels.
+  sg_begin_pass(&(sg_pass){.swapchain=sglue_swapchain(),.action={
+      .colors[0].load_action=SG_LOADACTION_LOAD,
+      .depth.load_action=SG_LOADACTION_LOAD,
+      .stencil.load_action=SG_LOADACTION_LOAD}});
+  sgl_draw_layer(131);
+  sg_end_pass();
+  sg_commit();
 }
 
 static int js_engine_init(JSContext *ctx, JSModuleDef *m)

@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "passages": {
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:1": {
+      "name": "Child 1",
+      "tags": [
+        "CHILD_1"
+      ],
+      "text": "DAD!! I'm so glad to see you!",
+      "answers": [
+        {
+          "text": "My dear daughter! There you are",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:2"
+        },
+        {
+          "text": "I'm also pretty happy to see you",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:3"
+        },
+        {
+          "text": "You're alive! But where are your siblings?",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:4"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:2": {
+      "name": "I want to go home",
+      "tags": [],
+      "text": "I really want to go home now. I miss our cat",
+      "answers": [
+        {
+          "text": "Are you sure you can go alone?",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:6"
+        },
+        {
+          "text": "Lord Whiskers is waiting for you at home",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:9"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:3": {
+      "name": "I'm hungry",
+      "tags": [],
+      "text": "I'm really hungry dad..",
+      "answers": [
+        {
+          "text": "I was going to make tacos tonight",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:10"
+        },
+        {
+          "text": "Would it be ok for you to go home alone?",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:6"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:4": {
+      "name": "Where are siblings",
+      "tags": [],
+      "text": "Timmy dared us to go down that creepy stairway! The others went further down...",
+      "answers": [
+        {
+          "text": "Classic Timmy.. I have to find them",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:2"
+        },
+        {
+          "text": "I told you not to play in the old garden",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:5"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:5": {
+      "name": "I'm sorry",
+      "tags": [],
+      "text": "I'm sorry dad.. I really want to go home now!",
+      "answers": [
+        {
+          "text": "I will show you the way back but you have to go alone",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:6"
+        },
+        {
+          "text": "I have to find the others. Do you have any idea where the next staircase is?",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:7"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:6": {
+      "name": "I will go alone",
+      "tags": [],
+      "text": "I will go alone! I'm scared but I'm also hungry as hell!",
+      "answers": [
+        {
+          "text": "Ok, I will se you at home",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:8"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:7": {
+      "name": "Staircase",
+      "tags": [],
+      "text": "I think the staircase is to the north west of here. Can you show me the way out of here now please??",
+      "answers": [
+        {
+          "text": "I can show you the way but you will have to go alone",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:6"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:8": {
+      "name": "CHILD_LEAVE",
+      "tags": [],
+      "text": "",
+      "answers": [],
+      "exit": true
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:9": {
+      "name": "Lord Whiskers",
+      "tags": [],
+      "text": "He's a lazy fat cat but I love him.",
+      "answers": [
+        {
+          "text": "Ok I can tell you the way home but you'll have to go alone",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:6"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:10": {
+      "name": "I can start cooking",
+      "tags": [],
+      "text": "TACOS! I can go home and start cooking so you can concentrate on finding the rest.",
+      "answers": [
+        {
+          "text": "Ok, I will show you the way, but you'll have to go alone",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:6"
+        }
+      ],
+      "exit": false
+    }
+  },
+  "entries": {
+    "CHILD_1": "85E70DC7-51D8-47B4-9820-866D12F367A4:1"
+  }
+}

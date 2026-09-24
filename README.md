@@ -167,11 +167,11 @@ Call `setTexture` before submitting textured geometry.
 | --- | --- |
 | `setTexture(textureId, nearest = false)` | Selects the current texture and linear or nearest-neighbor sampling. |
 | `drawTexture(x, y, anchorX, anchorY, rotation, scale, alpha)` | Draws the entire current texture. |
-| `drawTextureClip(sourceX, sourceY, sourceWidth, sourceHeight, x, y, anchorX, anchorY, rotation, scale, alpha)` | Draws a pixel rectangle from the current texture. |
+| `drawTextureClip(sourceX, sourceY, sourceWidth, sourceHeight, x, y, anchorX, anchorY, rotation, scale, alpha, flipX = false, flipY = false)` | Draws a pixel rectangle from the current texture. Optional flips reverse texture coordinates without changing geometry, anchors, rotation, or pixel snapping; existing 11-argument calls are unchanged. |
 | `drawTexturedTriangle(x1, y1, x2, y2, x3, y3, alpha)` | Draws a triangle using the current texture. |
 | `drawTriangle(x1, y1, x2, y2, x3, y3, red, green, blue, alpha)` | Draws a solid-color triangle. |
 | `setClearColor(red, green, blue, alpha)` | Sets the framebuffer clear color. |
-| `setSpriteLayer(layer)` | Selects a sprite layer from `0` through `130`. |
+| `setSpriteLayer(layer)` | Selects a sprite layer from `0` through `131`. Layer `131` is reserved for UI sprites drawn after NanoVG panels and text. Restore layer `0` after submitting UI sprites. |
 | `setSpriteForeground(enabled)` | Compatibility helper selecting the background or foreground sprite layer. |
 | `flushRendering()` | Flushes submitted rendering and starts another pass. |
 
@@ -196,7 +196,7 @@ These functions map to NanoVG paths and text. Path geometry uses logical coordin
 | `graphicsFontFace(name)` | Selects a font by the name passed to `loadFont`. |
 | `graphicsTextAlign(flags)` | Sets NanoVG text-alignment flags. |
 | `graphicsText(x, y, text)` | Draws a single line of text. |
-| `graphicsTextBox(x, y, width, text)` | Draws wrapped text within a box. |
+| `graphicsTextBox(x, y, width, text, visibleCharacters?)` | Draws wrapped text within a box (logical units). Optional nonnegative Unicode code-point count reveals a prefix while retaining line breaks from the full text, for stable typewriter animation. |
 
 ### glTF models
 

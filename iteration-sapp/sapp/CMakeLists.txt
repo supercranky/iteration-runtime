@@ -80,6 +80,17 @@ endif()
 
 fips_end_app()
 
+# App-owned iOS branding, kept outside the reusable runtime checkout.
+if(FIPS_IOS AND NOT "$ENV{ITERATION_APPLICATION_IOS_ASSETS}" STREQUAL "")
+  set(iteration_ios_assets "$ENV{ITERATION_APPLICATION_IOS_ASSETS}")
+  if(NOT EXISTS "${iteration_ios_assets}/Contents.json")
+    message(FATAL_ERROR "Application iOS asset catalog not found: ${iteration_ios_assets}")
+  endif()
+  target_sources(iteration-sapp PRIVATE "${iteration_ios_assets}")
+  set_source_files_properties("${iteration_ios_assets}" PROPERTIES
+    MACOSX_PACKAGE_LOCATION Resources)
+endif()
+
 if(FIPS_EMSCRIPTEN)
   set(iteration_example_wasm "${FIPS_PROJECT_DEPLOY_DIR}/example.wasm")
   add_custom_command(
