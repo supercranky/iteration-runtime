@@ -3,13 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta
-      content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no"
+      content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover"
       name="viewport"
     />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Ner" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="format-detection" content="telephone=no" />
     <title>Ner</title>
     <style>
-      body {
+      html, body {
         margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
         background-color: #000;
       }
       .game {
@@ -20,7 +30,10 @@
         border: 0;
         width: 100%;
         height: 100%;
+        width: 100dvw;
+        height: 100dvh;
         overflow: hidden;
+        touch-action: none;
         display: block;
         image-rendering: optimizeSpeed;
         image-rendering: -moz-crisp-edges;
@@ -53,6 +66,25 @@
           console.log("monitor run deps: " + o);
         },
       };
+      // Safari's toolbar can resize dvh without a window resize event. Notify
+      // Sokol when the actual canvas CSS size changes so its backing buffer,
+      // projection and touch coordinates continue to match the visible area.
+      if (window.ResizeObserver) {
+        let width = 0, height = 0, pending = false;
+        new ResizeObserver(function () {
+          const rect = Module.canvas.getBoundingClientRect();
+          const nextWidth = Math.round(rect.width), nextHeight = Math.round(rect.height);
+          if (nextWidth === width && nextHeight === height) return;
+          width = nextWidth; height = nextHeight;
+          if (!pending) {
+            pending = true;
+            requestAnimationFrame(function () {
+              pending = false;
+              window.dispatchEvent(new Event('resize'));
+            });
+          }
+        }).observe(Module.canvas);
+      }
       window.onerror = function () {
         console.log("onerror: " + event.message);
       };

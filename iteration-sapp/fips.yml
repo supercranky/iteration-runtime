@@ -21,5 +21,3 @@ imports:
         git: https://github.com/fips-libs/fips-dawn
     fips-soloud:
         git: https://github.com/fips-libs/fips-soloud
-    fips-nanovg:
-        git: https://github.com/fungos/fips-nanovg

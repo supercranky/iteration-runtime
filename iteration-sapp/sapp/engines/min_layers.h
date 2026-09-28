@@ -4,7 +4,7 @@ static struct {
   NVGcontext *vg, *main;
   NVGLUframebuffer *layer, *combined;
   GLuint program, vao;
-  GLint framebuffer, viewport[4];
+  GLint framebuffer, viewport[4], sampler;
   int image, width, height, active, group;
   uint64_t completed_frame;
   int completed;
@@ -49,6 +49,7 @@ static int min_layers_prepare(NVGcontext *main, int width, int height)
     glLinkProgram(min_layers.program); glDeleteShader(vs); glDeleteShader(fs);
     GLint ok; glGetProgramiv(min_layers.program, GL_LINK_STATUS, &ok);
     if (!ok) { glDeleteProgram(min_layers.program); min_layers.program=0; return 0; }
+    min_layers.sampler = glGetUniformLocation(min_layers.program,"layer");
     glGenVertexArrays(1, &min_layers.vao);
   }
   if (!min_layers.layer || width != min_layers.width || height != min_layers.height) {
@@ -88,7 +89,7 @@ static int min_layers_begin(NVGcontext **vg, int reset)
   glClear(GL_COLOR_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
   glBlendEquation(GL_FUNC_ADD);
   /* Match the existing runtime's NanoVG coordinate system exactly. */
-  nvgBeginFrame(min_layers.vg,sapp_width(),sapp_height(),sapp_dpi_scale());
+  nvgBeginFrame(min_layers.vg,sapp_width(),sapp_height(),1.0f);
   *vg=min_layers.vg; min_layers.active=1; return 1;
 }
 static int min_layers_end(NVGcontext **vg, int present)
@@ -102,7 +103,7 @@ static int min_layers_end(NVGcontext **vg, int present)
   glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
   glUseProgram(min_layers.program); glBindVertexArray(min_layers.vao);
   glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,min_layers.layer->texture);
-  glUniform1i(glGetUniformLocation(min_layers.program,"layer"),0);
+  glUniform1i(min_layers.sampler,0);
   glEnable(GL_BLEND);glBlendEquation(GL_MIN);glBlendFunc(GL_ONE,GL_ONE);
   glDrawArrays(GL_TRIANGLES,0,3);
   min_layers_restore();

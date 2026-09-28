@@ -39,7 +39,12 @@ endif()
 fips_import_fips_imgui_imgui()
 fips_import_fips_cimgui_cimgui()
 fips_import_fips_soloud_soloud()
-fips_import_fips_nanovg_nanovg()
+# Use the existing runtime-owned NanoVG sources, including per-draw compositing.
+# Do not mix these headers with the older fips-nanovg callback ABI.
+fips_begin_lib(nanovg)
+  fips_files(libs/nanovg/nanovg.c)
+fips_end_lib()
+target_include_directories(nanovg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/libs/nanovg)
 
 if(NOT FIPS_UWP)
   # fips_import_fips_libmodplug_libmodplug()

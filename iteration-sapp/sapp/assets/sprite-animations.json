@@ -1,0 +1,267 @@
+{
+  "frames": {
+    "sword-white-anim-000.png": {
+      "frame": {
+        "x": 1,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-001.png": {
+      "frame": {
+        "x": 40,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-002.png": {
+      "frame": {
+        "x": 79,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-003.png": {
+      "frame": {
+        "x": 118,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-004.png": {
+      "frame": {
+        "x": 157,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-005.png": {
+      "frame": {
+        "x": 196,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-006.png": {
+      "frame": {
+        "x": 235,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-007.png": {
+      "frame": {
+        "x": 274,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-008.png": {
+      "frame": {
+        "x": 313,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-009.png": {
+      "frame": {
+        "x": 352,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-010.png": {
+      "frame": {
+        "x": 391,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-011.png": {
+      "frame": {
+        "x": 430,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-white-anim-012.png": {
+      "frame": {
+        "x": 469,
+        "y": 1,
+        "w": 37,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-000.png": {
+      "frame": {
+        "x": 1,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-001.png": {
+      "frame": {
+        "x": 40,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-002.png": {
+      "frame": {
+        "x": 79,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-003.png": {
+      "frame": {
+        "x": 118,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-004.png": {
+      "frame": {
+        "x": 157,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-005.png": {
+      "frame": {
+        "x": 196,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-006.png": {
+      "frame": {
+        "x": 235,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-007.png": {
+      "frame": {
+        "x": 274,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-008.png": {
+      "frame": {
+        "x": 313,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-009.png": {
+      "frame": {
+        "x": 352,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-010.png": {
+      "frame": {
+        "x": 391,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-011.png": {
+      "frame": {
+        "x": 430,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "sword-fire-anim-012.png": {
+      "frame": {
+        "x": 469,
+        "y": 51,
+        "w": 29,
+        "h": 48
+      },
+      "rotated": false,
+      "trimmed": false
+    }
+  },
+  "meta": {
+    "image": "sprite-animations.png"
+  }
+}

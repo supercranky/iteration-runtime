@@ -20,7 +20,6 @@
 #include <stdio.h>
 #include <math.h>
 #include <memory.h>
-#include "emscripten.h"
 
 #include "nanovg.h"
 #define FONTSTASH_IMPLEMENTATION
@@ -75,6 +74,7 @@ struct NVGstate
   int lineJoin;
   int lineCap;
   float alpha;
+  int compositeOperation;
   float xform[6];
   NVGscissor scissor;
   float fontSize;
@@ -611,6 +611,12 @@ void nvgRestore(NVGcontext *ctx)
   ctx->nstates--;
 }
 
+void nvgGlobalCompositeOperation(NVGcontext *ctx, int operation)
+{
+  if (operation == NVG_SOURCE_OVER || operation == NVG_LIGHTER)
+    nvg__getState(ctx)->compositeOperation = operation;
+}
+
 void nvgReset(NVGcontext *ctx)
 {
   NVGstate *state = nvg__getState(ctx);
@@ -623,6 +629,7 @@ void nvgReset(NVGcontext *ctx)
   state->lineCap = NVG_BUTT;
   state->lineJoin = NVG_MITER;
   state->alpha = 1.0f;
+  state->compositeOperation = NVG_SOURCE_OVER;
   nvgTransformIdentity(state->xform);
 
   state->scissor.extent[0] = -1.0f;
@@ -2344,7 +2351,7 @@ void nvgFill(NVGcontext *ctx)
   fillPaint.innerColor.a *= state->alpha;
   fillPaint.outerColor.a *= state->alpha;
 
-  ctx->params.renderFill(ctx->params.userPtr, &fillPaint, &state->scissor, ctx->fringeWidth,
+  ctx->params.renderFill(ctx->params.userPtr, &fillPaint, state->compositeOperation, &state->scissor, ctx->fringeWidth,
                          ctx->cache->bounds, ctx->cache->paths, ctx->cache->npaths);
 
   // Count triangles
@@ -2387,7 +2394,7 @@ void nvgStroke(NVGcontext *ctx)
   else
     nvg__expandStroke(ctx, strokeWidth * 0.5f, state->lineCap, state->lineJoin, state->miterLimit);
 
-  ctx->params.renderStroke(ctx->params.userPtr, &strokePaint, &state->scissor, ctx->fringeWidth,
+  ctx->params.renderStroke(ctx->params.userPtr, &strokePaint, state->compositeOperation, &state->scissor, ctx->fringeWidth,
                            strokeWidth, ctx->cache->paths, ctx->cache->npaths);
 
   // Count triangles
@@ -2496,7 +2503,6 @@ static int nvg__allocTextAtlas(NVGcontext *ctx)
   int iw, ih;
   nvg__flushTextTexture(ctx);
   if (ctx->fontImageIdx >= NVG_MAX_FONTIMAGES - 1)
-    emscripten_log(EM_LOG_CONSOLE, "NVG_MAX_FONTIMAGES error");
 
   return 0;
   // if next fontImage already have a texture
@@ -2512,8 +2518,6 @@ static int nvg__allocTextAtlas(NVGcontext *ctx)
     if (iw > NVG_MAX_FONTIMAGE_SIZE || ih > NVG_MAX_FONTIMAGE_SIZE)
       iw = ih = NVG_MAX_FONTIMAGE_SIZE;
 
-    emscripten_log(EM_LOG_CONSOLE, "NVG_MAX_FONTIMAGE_SIZE");
-    emscripten_log(EM_LOG_CONSOLE, "%d %d %d %d", iw, ih);
     ctx->fontImages[ctx->fontImageIdx + 1] = ctx->params.renderCreateTexture(ctx->params.userPtr, NVG_TEXTURE_ALPHA, iw, ih, 0, NULL);
   }
   ++ctx->fontImageIdx;
@@ -2533,7 +2537,7 @@ static void nvg__renderText(NVGcontext *ctx, NVGvertex *verts, int nverts)
   paint.innerColor.a *= state->alpha;
   paint.outerColor.a *= state->alpha;
 
-  ctx->params.renderTriangles(ctx->params.userPtr, &paint, &state->scissor, verts, nverts);
+  ctx->params.renderTriangles(ctx->params.userPtr, &paint, state->compositeOperation, &state->scissor, verts, nverts);
 
   ctx->drawCallCount++;
   ctx->textTriCount += nverts / 3;

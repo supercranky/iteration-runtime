@@ -21,6 +21,9 @@
 #include "stb/stb_image.h"
 #include "dbgui/dbgui.h"
 #include <string.h>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include "util/fileutil.h"
 
 // #include <CoreFoundation/CoreFoundation.h>
@@ -481,7 +484,11 @@ sapp_desc sokol_main(int argc, char *argv[])
       .sample_count = 4,
       // NanoVG uses stencil winding for concave paths and light-mask holes.
       .depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL,
+#if defined(__EMSCRIPTEN__) || (defined(__APPLE__) && TARGET_OS_IOS)
+      .high_dpi = true,
+#else
       .high_dpi = false,
+#endif
       .window_title = "ITERATION",
   };
 }

@@ -159,6 +159,7 @@ enum GLNVGcallType {
 };
 
 struct GLNVGcall {
+	int compositeOperation;
 	int type;
 	int image;
 	int pathOffset;
@@ -1128,8 +1129,13 @@ static void glnvg__renderFlush(void* uptr)
 		glBindBuffer(GL_UNIFORM_BUFFER, gl->fragBuf);
 #endif
 
+		int previousCompositeOperation = NVG_SOURCE_OVER;
 		for (i = 0; i < gl->ncalls; i++) {
 			GLNVGcall* call = &gl->calls[i];
+			if (call->compositeOperation != previousCompositeOperation) {
+				glBlendFunc(GL_ONE, call->compositeOperation == NVG_LIGHTER ? GL_ONE : GL_ONE_MINUS_SRC_ALPHA);
+				previousCompositeOperation = call->compositeOperation;
+			}
 			if (call->type == GLNVG_FILL)
 				glnvg__fill(gl, call);
 			else if (call->type == GLNVG_CONVEXFILL)
@@ -1245,7 +1251,7 @@ static void glnvg__vset(NVGvertex* vtx, float x, float y, float u, float v)
 	vtx->v = v;
 }
 
-static void glnvg__renderFill(void* uptr, NVGpaint* paint, NVGscissor* scissor, float fringe,
+static void glnvg__renderFill(void* uptr, NVGpaint* paint, int compositeOperation, NVGscissor* scissor, float fringe,
 							  const float* bounds, const NVGpath* paths, int npaths)
 {
 	GLNVGcontext* gl = (GLNVGcontext*)uptr;
@@ -1256,6 +1262,7 @@ static void glnvg__renderFill(void* uptr, NVGpaint* paint, NVGscissor* scissor, 
 
 	if (call == NULL) return;
 
+	call->compositeOperation = compositeOperation;
 	call->type = GLNVG_FILL;
 	call->pathOffset = glnvg__allocPaths(gl, npaths);
 	if (call->pathOffset == -1) goto error;
@@ -1326,7 +1333,7 @@ error:
 	if (gl->ncalls > 0) gl->ncalls--;
 }
 
-static void glnvg__renderStroke(void* uptr, NVGpaint* paint, NVGscissor* scissor, float fringe,
+static void glnvg__renderStroke(void* uptr, NVGpaint* paint, int compositeOperation, NVGscissor* scissor, float fringe,
 								float strokeWidth, const NVGpath* paths, int npaths)
 {
 	GLNVGcontext* gl = (GLNVGcontext*)uptr;
@@ -1335,6 +1342,7 @@ static void glnvg__renderStroke(void* uptr, NVGpaint* paint, NVGscissor* scissor
 
 	if (call == NULL) return;
 
+	call->compositeOperation = compositeOperation;
 	call->type = GLNVG_STROKE;
 	call->pathOffset = glnvg__allocPaths(gl, npaths);
 	if (call->pathOffset == -1) goto error;
@@ -1381,7 +1389,7 @@ error:
 	if (gl->ncalls > 0) gl->ncalls--;
 }
 
-static void glnvg__renderTriangles(void* uptr, NVGpaint* paint, NVGscissor* scissor,
+static void glnvg__renderTriangles(void* uptr, NVGpaint* paint, int compositeOperation, NVGscissor* scissor,
 								   const NVGvertex* verts, int nverts)
 {
 	GLNVGcontext* gl = (GLNVGcontext*)uptr;
@@ -1390,6 +1398,7 @@ static void glnvg__renderTriangles(void* uptr, NVGpaint* paint, NVGscissor* scis
 
 	if (call == NULL) return;
 
+	call->compositeOperation = compositeOperation;
 	call->type = GLNVG_TRIANGLES;
 	call->image = paint->image;
 

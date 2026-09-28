@@ -37,7 +37,7 @@
 #include "runtime.h"
 #include "soloud/soloud_c.h"
 
-#include "nanovg.h"
+#include "nanovg/nanovg.h"
 
 #if defined(SOKOL_METAL)
 #include "nanovg_mtl.h"
@@ -54,12 +54,14 @@
 
 #define NANOVG_GLES2_IMPLEMENTATION
 
-#include "nanovg_gl.h"
-#include "nanovg_gl_utils.h"
+#include "nanovg/nanovg_gl.h"
+#include "nanovg/nanovg_gl_utils.h"
 
 #endif
 #include "engines/engines.h"
+#include "engines/sprite_tint.h"
 #include "engines/wasm_plugins.h"
+#include "engines/storage.h"
 #include "plugins/iteration_plugin.h"
 #include "particles/particle_system.h"
 #include "particles/particle_js.h"
@@ -152,14 +154,9 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
   return JS_UNDEFINED;
 }
 
-static float dpi_scale()
-{
-#if defined(__EMSCRIPTEN__)
-  return 1;
-#else
-  return sapp_dpi_scale();
-#endif
-}
+// NanoVG, sprite snapping, input events and offscreen targets all use physical
+// framebuffer pixels. Do not divide only vector-rendering coordinates by DPI:
+// on Retina that would shrink and misalign text, shadows and particle masks.
 
 static float convert_screen_x_to_local(float _x)
 {
@@ -314,11 +311,8 @@ static float scale_screen_to_local(float value)
   }
 }
 
-static float convert_local_x_to_screen(float _x)
+static float convert_local_x_to_screen_dimensions(float _x, float w, float h)
 {
-
-  const float w = (float)sapp_width() / dpi_scale();
-  const float h = (float)sapp_height() / dpi_scale();
   float real_w = w;
   float real_h = h;
   float scale;
@@ -372,11 +366,12 @@ static float convert_local_x_to_screen(float _x)
     // return ((_x - w / 2) / size) * 1000 * scale;
   }
 }
-static float convert_local_y_to_screen(float _y)
+static float convert_local_x_to_screen(float x)
 {
-
-  const float w = (float)sapp_width() / dpi_scale();
-  const float h = (float)sapp_height() / dpi_scale();
+  return convert_local_x_to_screen_dimensions(x,(float)sapp_width(),(float)sapp_height());
+}
+static float convert_local_y_to_screen_dimensions(float _y, float w, float h)
+{
 
   float scale;
   float real_w = w;
@@ -431,11 +426,12 @@ static float convert_local_y_to_screen(float _y)
   }
 }
 
-static float scale_local_to_screen(float value)
+static float convert_local_y_to_screen(float y)
 {
-
-  const float w = (float)sapp_width() / dpi_scale();
-  const float h = (float)sapp_height() / dpi_scale();
+  return convert_local_y_to_screen_dimensions(y,(float)sapp_width(),(float)sapp_height());
+}
+static float scale_local_to_screen_dimensions(float value, float w, float h)
+{
   float real_w = w;
   float real_h = h;
   float scale;
@@ -472,6 +468,11 @@ static float scale_local_to_screen(float value)
 
     return (value / 1000) * h;
   }
+}
+
+static float scale_local_to_screen(float value)
+{
+  return scale_local_to_screen_dimensions(value,(float)sapp_width(),(float)sapp_height());
 }
 
 static void event_callback_call(JSContext *ctx, JSValueConst func, JSValueConst *event)
@@ -819,6 +820,34 @@ static JSValue js_engine_get_pixel_size(JSContext *ctx, JSValueConst this_val,
       ? 500.0 / state.sprite_pixel_scale : 1.0);
 }
 
+// Reference pixel size for a fullscreen display at the current render density.
+// Mobile browser chrome changes the visible canvas, not the intended pixel-art
+// magnification. Desktop and native apps keep the current framebuffer reference.
+static JSValue js_engine_get_fullscreen_pixel_size(JSContext *ctx, JSValueConst this_val,
+                                                   int argc, JSValueConst *argv)
+{
+  double pixel_size = state.sprite_pixel_scale > 0.0f ? 500.0 / state.sprite_pixel_scale : 1.0;
+#if defined(__EMSCRIPTEN__)
+  double ratio = EM_ASM_DOUBLE({
+    if (!window.matchMedia('(pointer: coarse)').matches) return 1;
+    var rect = Module.canvas.getBoundingClientRect();
+    var sw = window.screen.width; var sh = window.screen.height;
+    if (!(rect.width > 0 && rect.height > 0 && sw > 0 && sh > 0)) return 1;
+    var landscape = window.screen.orientation
+      ? window.screen.orientation.type.indexOf('landscape') === 0
+      : typeof window.orientation === 'number' ? Math.abs(window.orientation) % 180 === 90
+      : window.innerWidth > window.innerHeight;
+    var width = landscape ? Math.max(sw, sh) : Math.min(sw, sh);
+    var height = landscape ? Math.min(sw, sh) : Math.max(sw, sh);
+    if ($0 === 1) return rect.width / width;
+    if ($0 === 2) return rect.height / height;
+    return Math.max(rect.width, rect.height) / Math.max(width, height);
+  }, state.viewport_mode);
+  if (isfinite(ratio) && ratio > 0) pixel_size *= ratio;
+#endif
+  return JS_NewFloat64(ctx, pixel_size);
+}
+
 static JSValue js_engine_get_frame_count(JSContext *ctx, JSValueConst this_val,
                                          int argc, JSValueConst *argv)
 {
@@ -1133,14 +1162,19 @@ static JSValue js_engine_set_touchmove_callback(JSContext *ctx, JSValueConst thi
 // Snap final textured vertices, including rotation and anchor offsets, to
 // framebuffer pixels. The viewport accounts for high-DPI devices and zoom;
 // rounding shared tile edges identically avoids gaps between adjacent tiles.
-static void sprite_pixel_vertex(float x, float y, float u, float v)
+static void sprite_pixel_vertex_tinted(float x, float y, float u, float v, float amount)
 {
   float scale = state.sprite_pixel_scale;
   if (scale > 0.0f) {
     x = (floorf(x * scale + state.sprite_pixel_origin_x + 0.5f) - state.sprite_pixel_origin_x) / scale;
     y = (floorf(y * scale + state.sprite_pixel_origin_y + 0.5f) - state.sprite_pixel_origin_y) / scale;
   }
-  sgl_v2f_t2f(x, y, u, v);
+  sgl_v3f_t2f(x, y, amount, u, v);
+}
+
+static void sprite_pixel_vertex(float x, float y, float u, float v)
+{
+  sprite_pixel_vertex_tinted(x, y, u, v, 0.0f);
 }
 
 static JSValue js_engine_draw_texture(JSContext *ctx, JSValueConst this_val,
@@ -1269,7 +1303,6 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
   double alpha;
 
   double topLeftX, topLeftY, bottomLeftX, bottomLeftY, topRightX, topRightY, bottomRightX, bottomRightY;
-  double topLeftXRot, topLeftYRot, bottomLeftXRot, bottomLeftYRot, topRightXRot, topRightYRot, bottomRightXRot, bottomRightYRot;
 
   double widthSource = state.texture_sizes[state.current_texture].widthSource;
   double heightSource = state.texture_sizes[state.current_texture].heightSource;
@@ -1298,6 +1331,24 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
   int flip_x = argc > 11 ? JS_ToBool(ctx, argv[11]) : 0;
   int flip_y = argc > 12 ? JS_ToBool(ctx, argv[12]) : 0;
   if (flip_x < 0 || flip_y < 0) return JS_EXCEPTION;
+
+  // Optional per-draw color replacement, with normalized RGB and amount.
+  double tint[4] = {1, 1, 1, 0};
+  if (argc > 13 && !JS_IsUndefined(argv[13]) && !JS_IsNull(argv[13])) {
+    if (!JS_IsObject(argv[13])) return JS_ThrowTypeError(ctx, "tint must be {r,g,b,amount}");
+    const char *keys[4] = {"r", "g", "b", "amount"};
+    for (int i = 0; i < 4; i++) {
+      JSValue value = JS_GetPropertyStr(ctx, argv[13], keys[i]);
+      if (JS_IsException(value)) return JS_EXCEPTION;
+      int result = JS_ToFloat64(ctx, &tint[i], value);
+      JS_FreeValue(ctx, value);
+      if (result < 0) return JS_EXCEPTION;
+      if (!isfinite(tint[i]) || tint[i] < 0 || tint[i] > 1)
+        return JS_ThrowRangeError(ctx, "tint.%s must be finite and between 0 and 1", keys[i]);
+    }
+    if (tint[3] > 0 && !sprite_tint_prepare())
+      return JS_ThrowInternalError(ctx, "Sprite tint pipeline unavailable on this backend");
+  }
 
   double uv_left = source_x / widthTexture;
   double uv_top = source_y / heightTexture;
@@ -1337,40 +1388,27 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
   bottomRightX = -scale * width - (scale * width * anchor_x);
   bottomRightY = scale * height - (scale * height * anchor_y);
 
-  if (rotation == 0)
-  {
-
-    sgl_begin_quads();
-    sgl_c4f(alpha, alpha, alpha, alpha);
-    sprite_pixel_vertex(topLeftX + x, topLeftY + y, uv_left, uv_bottom);
-    sprite_pixel_vertex(topRightX + x, topRightY + y, uv_right, uv_bottom);
-    sprite_pixel_vertex(bottomLeftX + x, bottomLeftY + y, uv_right, uv_top);
-    sprite_pixel_vertex(bottomRightX + x, bottomRightY + y, uv_left, uv_top);
-    sgl_end();
+  if (tint[3] > 0) {
+    sgl_push_pipeline();
+    sgl_load_pipeline(sprite_tint_pipeline);
   }
-  else
-  {
-    double s = sinf(-rotation);
-    double c = cosf(-rotation);
-    topLeftXRot = topLeftX * c - topLeftY * s;
-    topLeftYRot = topLeftX * s + topLeftY * c;
-    topRightXRot = topRightX * c - topRightY * s;
-    topRightYRot = topRightX * s + topRightY * c;
-
-    bottomLeftXRot = bottomLeftX * c - bottomLeftY * s;
-    bottomLeftYRot = bottomLeftX * s + bottomLeftY * c;
-    bottomRightXRot = bottomRightX * c - bottomRightY * s;
-    bottomRightYRot = bottomRightX * s + bottomRightY * c;
-
-    sgl_begin_quads();
-    sgl_c4f(alpha, alpha, alpha, alpha);
-    sprite_pixel_vertex((topLeftXRot) + x, (topLeftYRot) + y, uv_left, uv_bottom);
-    sprite_pixel_vertex((topRightXRot) + x, (topRightYRot) + y, uv_right, uv_bottom);
-    sprite_pixel_vertex((bottomLeftXRot) + x, (bottomLeftYRot) + y, uv_right, uv_top);
-    sprite_pixel_vertex((bottomRightXRot) + x, (bottomRightYRot) + y, uv_left, uv_top);
-    sgl_end();
+  sgl_begin_quads();
+  if (tint[3] > 0) sgl_c4f(tint[0], tint[1], tint[2], alpha);
+  else sgl_c4f(alpha, alpha, alpha, alpha);
+  if (rotation == 0) {
+    sprite_pixel_vertex_tinted(topLeftX + x, topLeftY + y, uv_left, uv_bottom, tint[3]);
+    sprite_pixel_vertex_tinted(topRightX + x, topRightY + y, uv_right, uv_bottom, tint[3]);
+    sprite_pixel_vertex_tinted(bottomLeftX + x, bottomLeftY + y, uv_right, uv_top, tint[3]);
+    sprite_pixel_vertex_tinted(bottomRightX + x, bottomRightY + y, uv_left, uv_top, tint[3]);
+  } else {
+    double s = sinf(-rotation), c = cosf(-rotation);
+    sprite_pixel_vertex_tinted(topLeftX*c-topLeftY*s+x, topLeftX*s+topLeftY*c+y, uv_left, uv_bottom, tint[3]);
+    sprite_pixel_vertex_tinted(topRightX*c-topRightY*s+x, topRightX*s+topRightY*c+y, uv_right, uv_bottom, tint[3]);
+    sprite_pixel_vertex_tinted(bottomLeftX*c-bottomLeftY*s+x, bottomLeftX*s+bottomLeftY*c+y, uv_right, uv_top, tint[3]);
+    sprite_pixel_vertex_tinted(bottomRightX*c-bottomRightY*s+x, bottomRightX*s+bottomRightY*c+y, uv_left, uv_top, tint[3]);
   }
-
+  sgl_end();
+  if (tint[3] > 0) sgl_pop_pipeline();
   return JS_UNDEFINED;
 }
 
@@ -1468,7 +1506,7 @@ static struct {
 static GLuint particle_mask_shader(GLenum type,const char*source){GLuint shader=glCreateShader(type);glShaderSource(shader,1,&source,NULL);glCompileShader(shader);GLint ok=0;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);if(!ok){glDeleteShader(shader);return 0;}return shader;}
 static void particle_mask_targets_free(void){if(particle_mask.output_image)nvgDeleteImage(state.vg,particle_mask.output_image);if(particle_mask.particles)nvgluDeleteFramebuffer(particle_mask.particles);if(particle_mask.masked)nvgluDeleteFramebuffer(particle_mask.masked);particle_mask.output_image=0;particle_mask.particles=particle_mask.masked=NULL;}
 static int particle_mask_prepare(void){int width=sapp_width(),height=sapp_height();if(!particle_mask.vg)particle_mask.vg=nvgCreateGLES2(NVG_ANTIALIAS|NVG_STENCIL_STROKES);if(!particle_mask.vg)return 0;if(!particle_mask.program){GLuint vs=particle_mask_shader(GL_VERTEX_SHADER,"#version 300 es\nout vec2 uv;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);uv=p;gl_Position=vec4(p*2.-1.,0,1);}");GLuint fs=particle_mask_shader(GL_FRAGMENT_SHADER,"#version 300 es\nprecision highp float;in vec2 uv;uniform sampler2D particles;uniform sampler2D darkness;uniform float threshold;uniform float softness;out vec4 color;void main(){vec4 p=texture(particles,uv);float light=1.0-texture(darkness,uv).a;float visibility=smoothstep(threshold,threshold+max(softness,0.0001),light);color=p*visibility;}");if(!vs||!fs)return 0;particle_mask.program=glCreateProgram();glAttachShader(particle_mask.program,vs);glAttachShader(particle_mask.program,fs);glLinkProgram(particle_mask.program);glDeleteShader(vs);glDeleteShader(fs);GLint ok=0;glGetProgramiv(particle_mask.program,GL_LINK_STATUS,&ok);if(!ok)return 0;glGenVertexArrays(1,&particle_mask.vao);}if(!particle_mask.particles||width!=particle_mask.width||height!=particle_mask.height){particle_mask_targets_free();particle_mask.particles=nvgluCreateFramebuffer(particle_mask.vg,width,height,0);particle_mask.masked=nvgluCreateFramebuffer(particle_mask.vg,width,height,0);if(!particle_mask.particles||!particle_mask.masked)return 0;particle_mask.output_image=nvglCreateImageFromHandleGLES2(state.vg,particle_mask.masked->texture,width,height,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);particle_mask.width=width;particle_mask.height=height;}return particle_mask.output_image!=0;}
-static int particle_mask_begin(int texture_id,float threshold,float softness){uint32_t darkness=min_layers_texture();if(!darkness)return 0;glGetIntegerv(GL_FRAMEBUFFER_BINDING,&particle_mask.framebuffer);glGetIntegerv(GL_VIEWPORT,particle_mask.viewport);if(!particle_mask_prepare()){glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();return 0;}glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.particles->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_SCISSOR_TEST);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);nvgBeginFrame(particle_mask.vg,sapp_width(),sapp_height(),sapp_dpi_scale());particle_mask.threshold=threshold;particle_mask.softness=softness;if(!particle_mask.source_images[texture_id]){sg_gl_image_info info=sg_gl_query_image_info(state.textures[texture_id]);particle_mask.source_images[texture_id]=nvglCreateImageFromHandleGLES2(particle_mask.vg,info.tex[info.active_slot],state.texture_sizes[texture_id].widthTexture,state.texture_sizes[texture_id].heightTexture,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);}return particle_mask.source_images[texture_id]!=0;}
+static int particle_mask_begin(int texture_id,float threshold,float softness){uint32_t darkness=min_layers_texture();if(!darkness)return 0;glGetIntegerv(GL_FRAMEBUFFER_BINDING,&particle_mask.framebuffer);glGetIntegerv(GL_VIEWPORT,particle_mask.viewport);if(!particle_mask_prepare()){glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();return 0;}glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.particles->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_SCISSOR_TEST);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);nvgBeginFrame(particle_mask.vg,sapp_width(),sapp_height(),1.0f);particle_mask.threshold=threshold;particle_mask.softness=softness;if(!particle_mask.source_images[texture_id]){sg_gl_image_info info=sg_gl_query_image_info(state.textures[texture_id]);particle_mask.source_images[texture_id]=nvglCreateImageFromHandleGLES2(particle_mask.vg,info.tex[info.active_slot],state.texture_sizes[texture_id].widthTexture,state.texture_sizes[texture_id].heightTexture,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);}return particle_mask.source_images[texture_id]!=0;}
 static void particle_mask_draw(int texture_id,int texture_width,int texture_height,float x,float y,float rotation,float size,float opacity){float sx=convert_local_x_to_screen(x),sy=convert_local_y_to_screen(y),w=scale_local_to_screen(size),h=texture_width>0?w*(float)texture_height/(float)texture_width:w;nvgSave(particle_mask.vg);nvgTranslate(particle_mask.vg,sx,sy);nvgRotate(particle_mask.vg,rotation);nvgGlobalAlpha(particle_mask.vg,opacity);nvgBeginPath(particle_mask.vg);nvgRect(particle_mask.vg,-w*.5f,-h*.5f,w,h);NVGpaint paint=nvgImagePattern(particle_mask.vg,-w*.5f,-h*.5f,w,h,0,particle_mask.source_images[texture_id],1);nvgFillPaint(particle_mask.vg,paint);nvgFill(particle_mask.vg);nvgRestore(particle_mask.vg);}
 static void particle_mask_end(void){nvgEndFrame(particle_mask.vg);glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.masked->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);if(!particle_mask.accumulated){glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);glUseProgram(particle_mask.program);glBindVertexArray(particle_mask.vao);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,particle_mask.particles->texture);glUniform1i(glGetUniformLocation(particle_mask.program,"particles"),0);glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,min_layers_texture());glUniform1i(glGetUniformLocation(particle_mask.program,"darkness"),1);glUniform1f(glGetUniformLocation(particle_mask.program,"threshold"),particle_mask.threshold);glUniform1f(glGetUniformLocation(particle_mask.program,"softness"),particle_mask.softness);glDrawArrays(GL_TRIANGLES,0,3);glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();particle_mask.accumulated=1;}
 /* NanoVG defers texture reads until end-frame. Present the accumulated rooms
@@ -1592,6 +1630,48 @@ static JSValue js_engine_set_clear_color(JSContext *ctx, JSValueConst this_val,
       .colors[0] = {.load_action = SG_LOADACTION_CLEAR,
                     .clear_value = {red, green, blue, alpha}}};
 
+  return JS_UNDEFINED;
+}
+
+static JSValue js_engine_graphics_save(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv)
+{
+  nvgSave(state.vg);
+  return JS_UNDEFINED;
+}
+
+static JSValue js_engine_graphics_restore(JSContext *ctx, JSValueConst this_val,
+                                         int argc, JSValueConst *argv)
+{
+  nvgRestore(state.vg);
+  return JS_UNDEFINED;
+}
+
+static JSValue js_engine_graphics_composite_operation(JSContext *ctx, JSValueConst this_val,
+                                                      int argc, JSValueConst *argv)
+{
+  if (argc < 1) return JS_ThrowTypeError(ctx, "graphicsCompositeOperation requires a mode");
+  const char *mode = JS_ToCString(ctx, argv[0]);
+  if (!mode) return JS_EXCEPTION;
+  int operation = !strcmp(mode, "source-over") ? NVG_SOURCE_OVER
+    : !strcmp(mode, "lighter") || !strcmp(mode, "additive") ? NVG_LIGHTER : -1;
+  JS_FreeCString(ctx, mode);
+  if (operation < 0) return JS_ThrowRangeError(ctx, "unsupported graphics composite operation");
+  nvgGlobalCompositeOperation(state.vg, operation);
+  return JS_UNDEFINED;
+}
+
+static JSValue js_engine_graphics_circle(JSContext *ctx, JSValueConst this_val,
+                                        int argc, JSValueConst *argv)
+{
+  double x, y, radius;
+  if (argc < 3) return JS_ThrowTypeError(ctx, "graphicsCircle requires x, y, radius");
+  if (JS_ToFloat64(ctx, &x, argv[0]) || JS_ToFloat64(ctx, &y, argv[1]) ||
+      JS_ToFloat64(ctx, &radius, argv[2])) return JS_EXCEPTION;
+  if (!isfinite(x) || !isfinite(y) || !isfinite(radius) || radius < 0)
+    return JS_ThrowRangeError(ctx, "graphicsCircle requires finite coordinates and a nonnegative radius");
+  nvgCircle(state.vg, convert_local_x_to_screen((float)x), convert_local_y_to_screen((float)y),
+    scale_local_to_screen((float)radius));
   return JS_UNDEFINED;
 }
 
@@ -1967,7 +2047,7 @@ static JSValue js_engine_flush_rendering(JSContext *ctx, JSValueConst this_val,
 
   if (state.vg != NULL)
   {
-    nvgBeginFrame(state.vg, width, height, sapp_dpi_scale());
+    nvgBeginFrame(state.vg, width, height, 1.0f);
   }
 
   sgl_defaults();
@@ -2263,6 +2343,7 @@ static void fetch_engine_load_font_callback(const sfetch_response_t *response)
 }
 
 #include "engines/min_layers.h"
+#include "engines/plugin_paths.h"
 
 static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, size_t size)
 {
@@ -2276,6 +2357,9 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
       header.byte_length != size)
     return 0;
 
+  // Command execution is synchronous; none of these opcodes resize/change
+  // the viewport. Snapshot dimensions once, retaining the original float math.
+  const float w=(float)sapp_width(),h=(float)sapp_height();
   size_t offset = sizeof(header);
   uint32_t command_count = 0;
   while (offset < size)
@@ -2287,6 +2371,9 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
     if (command.byte_size < sizeof(command) || command.byte_size > size - offset)
       return 0;
 
+    size_t advance=command.byte_size;
+    uint32_t consumed_commands=1;
+    double command_start=wasm_profile.active && wasm_profile.detailed ? wasm_profile_now() : 0;
     switch (command.opcode)
     {
     case ITER_RENDER_MIN_LAYER_FIRST:
@@ -2306,11 +2393,27 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
     case ITER_RENDER_MOVE_TO:
     case ITER_RENDER_LINE_TO:
     {
+      float bounds[4];
+      if(command.opcode==ITER_RENDER_MOVE_TO && plugin_rect_path(bytes+offset,size-offset,bounds)) {
+        float x=convert_local_x_to_screen_dimensions(bounds[0],w,h),y=convert_local_y_to_screen_dimensions(bounds[1],w,h);
+        float right=convert_local_x_to_screen_dimensions(bounds[2],w,h),bottom=convert_local_y_to_screen_dimensions(bounds[3],w,h);
+        float width=right-x,height=bottom-y,check_x=x+width,check_y=y+height;
+        // nvgRect appends exactly these four vertices and Close in one call.
+        // Do not substitute it when subtract/add rounding changes an endpoint.
+        if(!memcmp(&right,&check_x,sizeof(float)) && !memcmp(&bottom,&check_y,sizeof(float))) {
+          nvgRect(state.vg,x,y,width,height);
+        } else {
+          nvgMoveTo(state.vg,x,y);nvgLineTo(state.vg,x,bottom);
+          nvgLineTo(state.vg,right,bottom);nvgLineTo(state.vg,right,y);nvgClosePath(state.vg);
+        }
+        advance=ITERATION_RECT_PATH_BYTES;consumed_commands=5;
+        break;
+      }
       iteration_xy_command value;
       if (command.byte_size != sizeof(value)) return 0;
       memcpy(&value, bytes + offset, sizeof(value));
-      float x = convert_local_x_to_screen(value.x);
-      float y = convert_local_y_to_screen(value.y);
+      float x = convert_local_x_to_screen_dimensions(value.x,w,h);
+      float y = convert_local_y_to_screen_dimensions(value.y,w,h);
       if (command.opcode == ITER_RENDER_MOVE_TO) nvgMoveTo(state.vg, x, y);
       else nvgLineTo(state.vg, x, y);
       break;
@@ -2321,15 +2424,15 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
       iteration_rect_command value;
       if (command.byte_size != sizeof(value)) return 0;
       memcpy(&value, bytes + offset, sizeof(value));
-      float x = convert_local_x_to_screen(value.x);
-      float y = convert_local_y_to_screen(value.y);
-      float width = scale_local_to_screen(value.width);
-      float height = scale_local_to_screen(value.height);
+      float x = convert_local_x_to_screen_dimensions(value.x,w,h);
+      float y = convert_local_y_to_screen_dimensions(value.y,w,h);
+      float width = scale_local_to_screen_dimensions(value.width,w,h);
+      float height = scale_local_to_screen_dimensions(value.height,w,h);
       if (command.opcode == ITER_RENDER_RECT)
         nvgRect(state.vg, x, y, width, height);
       else
         nvgRoundedRect(state.vg, x, y, width, height,
-                       scale_local_to_screen(value.radius));
+                       scale_local_to_screen_dimensions(value.radius,w,h));
       break;
     }
     case ITER_RENDER_FILL_COLOR:
@@ -2356,10 +2459,10 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
       memcpy(&value, bytes + offset, sizeof(value));
       NVGpaint paint = nvgRadialGradient(
           state.vg,
-          convert_local_x_to_screen(value.center_x),
-          convert_local_y_to_screen(value.center_y),
-          scale_local_to_screen(value.inner_radius),
-          scale_local_to_screen(value.outer_radius),
+          convert_local_x_to_screen_dimensions(value.center_x,w,h),
+          convert_local_y_to_screen_dimensions(value.center_y,w,h),
+          scale_local_to_screen_dimensions(value.inner_radius,w,h),
+          scale_local_to_screen_dimensions(value.outer_radius,w,h),
           nvgRGBAf(value.inner_red, value.inner_green, value.inner_blue, value.inner_alpha),
           nvgRGBAf(value.outer_red, value.outer_green, value.outer_blue, value.outer_alpha));
       nvgFillPaint(state.vg, paint);
@@ -2373,7 +2476,7 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
       iteration_scalar_command value;
       if (command.byte_size != sizeof(value)) return 0;
       memcpy(&value, bytes + offset, sizeof(value));
-      nvgStrokeWidth(state.vg, scale_local_to_screen(value.value));
+      nvgStrokeWidth(state.vg, scale_local_to_screen_dimensions(value.value,w,h));
       break;
     }
     case ITER_RENDER_STROKE:
@@ -2382,17 +2485,38 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
     default:
       return 0;
     }
-    offset += command.byte_size;
-    command_count++;
+    if(wasm_profile.active) {
+      double elapsed=wasm_profile.detailed ? wasm_profile_now()-command_start : 0;
+      wasm_profile.commands+=consumed_commands;
+      switch(command.opcode) {
+      case ITER_RENDER_MIN_LAYER_FIRST: case ITER_RENDER_MIN_LAYER_NEXT:
+      case ITER_RENDER_MIN_LAYER_END: case ITER_RENDER_MIN_LAYER_PRESENT:
+        wasm_profile.layer_commands++;wasm_profile.layer_ms+=elapsed;break;
+      case ITER_RENDER_FILL: case ITER_RENDER_STROKE:
+        wasm_profile.fill_commands++;wasm_profile.fill_ms+=elapsed;break;
+      case ITER_RENDER_FILL_COLOR: case ITER_RENDER_STROKE_COLOR:
+      case ITER_RENDER_RADIAL_GRADIENT: case ITER_RENDER_STROKE_WIDTH:
+        wasm_profile.paint_commands++;wasm_profile.paint_ms+=elapsed;break;
+      default:
+        wasm_profile.path_commands+=consumed_commands;wasm_profile.path_ms+=elapsed;break;
+      }
+    }
+    offset += advance;
+    command_count+=consumed_commands;
   }
   return offset == size && command_count == header.command_count;
 }
 
 static int engine_execute_plugin_render_commands(const uint8_t *bytes, size_t size)
 {
+  double start=wasm_profile.active?wasm_profile_now():0;
   int ok=engine_execute_plugin_render_commands_inner(bytes,size);
-  if(!ok || !min_layers_balanced()){min_layers_abort(&state.vg);return 0;}
-  return 1;
+  if(!ok || !min_layers_balanced()){min_layers_abort(&state.vg);ok=0;}
+  if(wasm_profile.active) {
+    wasm_profile.render_ms+=wasm_profile_now()-start;
+    wasm_profile.render_bytes+=size;
+  }
+  return ok;
 }
 
 // Both layers are recorded before either is uploaded. Layer 1 is reserved
@@ -2425,6 +2549,8 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("loadText", 2, js_engine_load_text),
     JS_CFUNC_DEF("loadWasm", 2, js_engine_load_wasm),
     JS_CFUNC_DEF("callWasm", 3, js_engine_call_wasm),
+    JS_CFUNC_DEF("setPluginProfiling", 2, js_engine_set_plugin_profiling),
+    JS_CFUNC_DEF("getPluginProfile", 0, js_engine_get_plugin_profile),
     JS_CFUNC_DEF("setTexture", 2, js_engine_set_texture),
     JS_CFUNC_DEF("drawTexture", 7, js_engine_draw_texture),
 
@@ -2437,6 +2563,10 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("drawTextureClip", 11, js_engine_draw_texture_clip),
 
     JS_CFUNC_DEF("now", 0, js_engine_now),
+    JS_CFUNC_DEF("graphicsSave", 0, js_engine_graphics_save),
+    JS_CFUNC_DEF("graphicsRestore", 0, js_engine_graphics_restore),
+    JS_CFUNC_DEF("graphicsCompositeOperation", 1, js_engine_graphics_composite_operation),
+    JS_CFUNC_DEF("graphicsCircle", 3, js_engine_graphics_circle),
     JS_CFUNC_DEF("graphicsBeginPath", 0, js_engine_graphics_begin_path),
     JS_CFUNC_DEF("graphicsClosePath", 0, js_engine_graphics_close_path),
 
@@ -2464,6 +2594,10 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("flushRendering", 0, js_engine_flush_rendering),
 
     JS_CFUNC_DEF("setOnFrame", 1, js_engine_set_frame_callback),
+    JS_CFUNC_DEF("loadData", 2, js_storage_load),
+    JS_CFUNC_DEF("saveData", 3, js_storage_save),
+    JS_CFUNC_DEF("deleteData", 2, js_storage_delete),
+    JS_CFUNC_DEF("isReload", 0, js_storage_is_reload),
     JS_CFUNC_DEF("setOnResize", 1, js_engine_set_resize_callback),
 
     JS_CFUNC_DEF("setOnKeyDown", 1, js_engine_set_keydown_callback),
@@ -2482,6 +2616,7 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("getFrameDuration", 0, js_engine_get_frame_duration),
     JS_CFUNC_DEF("getFrameCount", 0, js_engine_get_frame_count),
     JS_CFUNC_DEF("getPixelSize", 0, js_engine_get_pixel_size),
+    JS_CFUNC_DEF("getFullscreenPixelSize", 0, js_engine_get_fullscreen_pixel_size),
 
     JS_CFUNC_DEF("loadSound", 2, js_engine_load_sound),
     JS_CFUNC_DEF("playSound", 3, js_engine_play_sound),
@@ -2571,6 +2706,8 @@ void drawButton(NVGcontext *vg, int preicon, const char *text, float x, float y,
 
 void engine_shutdown()
 {
+  storage_shutdown();
+  sprite_tint_shutdown();
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
   particle_mask_targets_free();
   for(int i=0;i<256;i++)if(particle_mask.source_images[i])nvgDeleteImage(particle_mask.vg,particle_mask.source_images[i]);
@@ -2587,14 +2724,14 @@ void engine_shutdown()
 
 void engine_frame()
 {
-
+  storage_poll();
   float width = sapp_width();
   float height = sapp_height();
   float ratio = width / height;
 
   if (state.vg != NULL)
   {
-    nvgBeginFrame(state.vg, width, height, sapp_dpi_scale());
+    nvgBeginFrame(state.vg, width, height, 1.0f);
   }
 
   sgl_defaults();

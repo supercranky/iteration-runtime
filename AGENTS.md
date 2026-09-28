@@ -45,6 +45,7 @@ Then test <http://localhost:8000/iteration-sapp.html>. WebAudio autoplay warning
 - `iteration-sapp/sapp/quickjs/`: minimal vendored QuickJS runtime
 - `iteration-sapp/sapp/plugins/`: generic plugin ABI and runtime smoke-test plugin
 - `iteration-sapp/libs/sokol/`: Sokol implementation translation units
+- `iteration-sapp/libs/nanovg/`: existing runtime-owned NanoVG core/GL backend, now built directly with per-draw source-over/additive compositing. Keep core, public header and renderer callback signatures synchronized; do not use the old `fips-nanovg` headers.
 - `sokol/`: pinned upstream Sokol headers
 - `sokol-tools-bin/`: pinned shader compiler binaries
 - `fips-*`: pinned build dependencies
@@ -68,6 +69,16 @@ These are covered by the root `.gitignore`. If a new tool creates generated outp
 - QuickJS is intentionally vendored as only the files needed to build the embedded library. Do not add upstream tests, examples, command-line tools, generated archives, or precompiled libraries.
 - Application-specific plugins and their build systems belong in the consuming application repository. Keep only the stable plugin ABI, generic host, and smoke-test plugin here.
 - Do not edit files under `fips-build/`, `fips-deploy/`, or `fips-sdks/`; regenerate them.
+
+## Storage
+
+`sapp/engines/storage.h` implements generic asynchronous string storage: IndexedDB
+with transactional backup on web, tab-local sessionStorage for reload snapshots,
+and atomic POSIX files on a bounded serial worker on native. JS promises must be
+resolved/freed on the main thread only. Keep request/value limits, key validation,
+backup recovery and shutdown cleanup intact. Game schemas and migrations belong
+to the consuming app. Run `python3 tests/storage-files.py` and the consuming
+app's browser storage tests after changes. Windows storage rejects explicitly.
 
 ## Coding notes
 

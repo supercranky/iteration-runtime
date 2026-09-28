@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -12,6 +13,53 @@
 #include "util/fileutil.h"
 #include "wasm_export.h"
 #endif
+
+wasm_plugin_profile wasm_profile;
+double wasm_profile_now(void) {
+#if defined(__EMSCRIPTEN__)
+  return emscripten_get_now();
+#else
+  struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+  return (double)now.tv_sec*1000.0+(double)now.tv_nsec/1000000.0;
+#endif
+}
+JSValue js_engine_set_plugin_profiling(JSContext *ctx, JSValueConst this_val,
+                                      int argc, JSValueConst *argv) {
+  (void)this_val;
+  int enabled=argc>0 && JS_ToBool(ctx,argv[0]);
+  int detailed=argc>1 && JS_ToBool(ctx,argv[1]);
+  // Enabling starts fresh; disabling preserves totals and mode for inspection.
+  if(enabled) {
+    memset(&wasm_profile,0,sizeof(wasm_profile));
+    wasm_profile.detailed=detailed;
+  }
+  wasm_profile.enabled=enabled;
+  return JS_UNDEFINED;
+}
+JSValue js_engine_get_plugin_profile(JSContext *ctx, JSValueConst this_val,
+                                     int argc, JSValueConst *argv) {
+  (void)this_val;(void)argc;(void)argv;
+  JSValue out=JS_NewObject(ctx);
+#define PROFILE_FIELD(field) JS_SetPropertyStr(ctx,out,#field,JS_NewFloat64(ctx,(double)wasm_profile.field))
+  PROFILE_FIELD(enabled);PROFILE_FIELD(detailed);
+  PROFILE_FIELD(calls);PROFILE_FIELD(failures);PROFILE_FIELD(input_bytes);
+  PROFILE_FIELD(value_bytes);PROFILE_FIELD(render_bytes);PROFILE_FIELD(commands);
+  PROFILE_FIELD(layer_commands);PROFILE_FIELD(path_commands);
+  PROFILE_FIELD(paint_commands);PROFILE_FIELD(fill_commands);
+  PROFILE_FIELD(total_ms);PROFILE_FIELD(plugin_ms);PROFILE_FIELD(result_copy_ms);
+  PROFILE_FIELD(render_ms);PROFILE_FIELD(layer_ms);PROFILE_FIELD(path_ms);
+  PROFILE_FIELD(paint_ms);PROFILE_FIELD(fill_ms);
+#undef PROFILE_FIELD
+  return out;
+}
+static JSValue plugin_result_copy(JSContext *ctx,const uint8_t *bytes,size_t size) {
+  if(!wasm_profile.active)return JS_NewArrayBufferCopy(ctx,bytes,size);
+  double start=wasm_profile_now();
+  JSValue result=JS_NewArrayBufferCopy(ctx,bytes,size);
+  wasm_profile.result_copy_ms+=wasm_profile_now()-start;
+  wasm_profile.value_bytes+=size;
+  return result;
+}
 
 #define ITERATION_MAX_WASM_LOADS 64
 #define ITERATION_MAX_WASM_PLUGINS 32
@@ -311,6 +359,7 @@ static void wasm_native_fetch_callback(const sfetch_response_t *response)
 void wasm_plugins_init(JSContext *ctx, wasm_plugin_render_fn render)
 {
   memset(&wasm_state, 0, sizeof(wasm_state));
+  memset(&wasm_profile, 0, sizeof(wasm_profile));
   wasm_state.ctx = ctx;
   wasm_state.render = render;
 #if defined(ITERATION_WAMR)
@@ -454,7 +503,20 @@ JSValue js_engine_load_wasm(JSContext *ctx, JSValueConst this_val,
 #endif
 }
 
-JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
+static JSValue engine_call_wasm_inner(JSContext *,JSValueConst,int,JSValueConst *);
+JSValue js_engine_call_wasm(JSContext *ctx,JSValueConst this_val,int argc,JSValueConst *argv) {
+  if(!wasm_profile.enabled)return engine_call_wasm_inner(ctx,this_val,argc,argv);
+  double start=wasm_profile_now();
+  int previous_active=wasm_profile.active;
+  wasm_profile.active=1;
+  JSValue result=engine_call_wasm_inner(ctx,this_val,argc,argv);
+  wasm_profile.active=previous_active;
+  wasm_profile.total_ms+=wasm_profile_now()-start;
+  wasm_profile.calls++;
+  if(JS_IsException(result))wasm_profile.failures++;
+  return result;
+}
+static JSValue engine_call_wasm_inner(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv)
 {
   int32_t handle, method;
@@ -466,9 +528,12 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
     return JS_ThrowTypeError(ctx, "callWasm requires a handle, method and ArrayBuffer");
   if (input_len > ITERATION_WASM_FETCH_SIZE)
     return JS_ThrowRangeError(ctx, "WebAssembly plugin input is too large");
+  if(wasm_profile.active)wasm_profile.input_bytes+=input_len;
 #if defined(__EMSCRIPTEN__)
   uint32_t meta[2] = {0, 0};
+  double plugin_start=wasm_profile.active?wasm_profile_now():0;
   int status = iteration_wasm_web_call(handle, method, input, (int)input_len, meta);
+  if(wasm_profile.active)wasm_profile.plugin_ms+=wasm_profile_now()-plugin_start;
   if (status != 0)
     return JS_ThrowInternalError(ctx, "WebAssembly plugin call failed (%d)", status);
   if (meta[0] > ITERATION_WASM_FETCH_SIZE || meta[1] > ITERATION_WASM_FETCH_SIZE)
@@ -489,7 +554,7 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
     free(render);
     return JS_ThrowInternalError(ctx, "plugin returned invalid render commands");
   }
-  JSValue result = JS_NewArrayBufferCopy(ctx, value, meta[0]);
+  JSValue result = plugin_result_copy(ctx, value, meta[0]);
   free(value);
   free(render);
   return result;
@@ -506,7 +571,9 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
     memcpy(wasm_runtime_addr_app_to_native(plugin->instance, input_ptr), input, input_len);
   uint32_t call_args[3] = {(uint32_t)method, input_ptr, (uint32_t)input_len};
   uint32_t result_ptr = 0;
+  double plugin_start=wasm_profile.active?wasm_profile_now():0;
   int called = wamr_call_u32(plugin, "iteration_call", 3, call_args, &result_ptr);
+  if(wasm_profile.active)wasm_profile.plugin_ms+=wasm_profile_now()-plugin_start;
   uint32_t free_args[3] = {input_ptr, (uint32_t)input_len, 8};
   if (!called || !wasm_runtime_validate_app_addr(plugin->instance, result_ptr, 20))
   {
@@ -534,7 +601,7 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
   }
   const uint8_t *value = value_len
       ? wasm_runtime_addr_app_to_native(plugin->instance, value_ptr) : NULL;
-  JSValue result = JS_NewArrayBufferCopy(ctx, value, value_len);
+  JSValue result = plugin_result_copy(ctx, value, value_len);
   wamr_call_u32(plugin, "iteration_free", 3, free_args, NULL);
   return result;
 #elif defined(ITERATION_NATIVE_PLUGINS)
@@ -546,8 +613,10 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
   if (input_len && !input_ptr)
     return JS_ThrowOutOfMemory(ctx);
   if (input_len) memcpy((void *)(uintptr_t)input_ptr, input, input_len);
+  double plugin_start=wasm_profile.active?wasm_profile_now():0;
   iteration_plugin_ptr result_ptr = plugin->call(
       (uint32_t)method, input_ptr, (uint32_t)input_len);
+  if(wasm_profile.active)wasm_profile.plugin_ms+=wasm_profile_now()-plugin_start;
   const iteration_plugin_result *native_result =
       (const iteration_plugin_result *)(uintptr_t)result_ptr;
   if (!native_result || native_result->status ||
@@ -566,7 +635,7 @@ JSValue js_engine_call_wasm(JSContext *ctx, JSValueConst this_val,
     plugin->free(input_ptr, (uint32_t)input_len, 8);
     return JS_ThrowInternalError(ctx, "plugin returned invalid render commands");
   }
-  JSValue result = JS_NewArrayBufferCopy(ctx, value, native_result->value_len);
+  JSValue result = plugin_result_copy(ctx, value, native_result->value_len);
   plugin->free(input_ptr, (uint32_t)input_len, 8);
   return result;
 #else
