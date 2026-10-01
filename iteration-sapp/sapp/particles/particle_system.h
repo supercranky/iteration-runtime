@@ -101,6 +101,9 @@ void particle_system_stop(ParticleSystem *system);
 void particle_system_emit(ParticleSystem *system, uint32_t count);
 void particle_system_update(ParticleSystem *system, float dt);
 void particle_system_update_all(float dt);
+/* Render-only culling in world coordinates; nonfinite bounds disable culling.
+ * Simulation remains active offscreen. Caller may pad bounds for raster AA. */
+void particle_system_set_viewport(float left, float top, float right, float bottom);
 void particle_system_render_all(ParticleDrawFn draw);
 void particle_system_render_masked(ParticleDrawFn draw, int masked);
 void particle_system_shutdown_all(void);

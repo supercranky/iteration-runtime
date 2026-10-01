@@ -93,7 +93,7 @@
       "text": "I will go alone! I'm scared but I'm also hungry as hell!",
       "answers": [
         {
-          "text": "Ok, I will se you at home",
+          "text": "Ok, I will see you at home",
           "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:8"
         }
       ],
@@ -102,7 +102,7 @@
     "85E70DC7-51D8-47B4-9820-866D12F367A4:7": {
       "name": "Staircase",
       "tags": [],
-      "text": "I think the staircase is to the north west of here. Can you show me the way out of here now please??",
+      "text": "I think the staircase is to the @STAIRCASE_HEADING of here. Can you show me the way out of here now please??",
       "answers": [
         {
           "text": "I can show you the way but you will have to go alone",
@@ -141,9 +141,144 @@
         }
       ],
       "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:11": {
+      "name": "Child 2",
+      "tags": [
+        "CHILD_2"
+      ],
+      "text": "Well hello dad! Why are you lurking around here?",
+      "answers": [
+        {
+          "text": "I'm looking for my missing kids",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:12"
+        },
+        {
+          "text": "Well hello Theodore! Glad to see you're alive",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:19"
+        },
+        {
+          "text": "I have been worried sick about you!",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:13"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:12": {
+      "name": "Well here I am",
+      "tags": [],
+      "text": "Well here I am at least! We got split up.. there was a fight.",
+      "answers": [
+        {
+          "text": "Oh you are fighting.. what a surprise",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:14"
+        },
+        {
+          "text": "You should head back home",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:15"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:13": {
+      "name": "Don't worry",
+      "tags": [],
+      "text": "Don't worry about me! I can always manage.",
+      "answers": [
+        {
+          "text": "I'm sure. But now it's time to go home",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:16"
+        },
+        {
+          "text": "You have always been the brave one",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:17"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:14": {
+      "name": "I explored",
+      "tags": [],
+      "text": "I explored this whole floor. Lot's of weird creatures living here! I tried communicating with them but they are not that friendly.",
+      "answers": [
+        {
+          "text": "So did you find anything else?",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:18"
+        },
+        {
+          "text": "You should go home now",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:15"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:15": {
+      "name": "But this is exciting",
+      "tags": [],
+      "text": "But this is so exciting! I love it here",
+      "answers": [
+        {
+          "text": "Don't make me beg. You need to go home now",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:16"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:16": {
+      "name": "Ok I'll go",
+      "tags": [],
+      "text": "Ok I'll go, show me the way up please.",
+      "answers": [
+        {
+          "text": "I'll show you. You be careful now",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:8"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:17": {
+      "name": "Just like you dad",
+      "tags": [],
+      "text": "Just like you dad. You are the bravest dad.",
+      "answers": [
+        {
+          "text": "I just do what I have to kid. Now go home!",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:15"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:18": {
+      "name": "I found this!",
+      "tags": [],
+      "text": "@item: LEGENDARY_ARMOUR\nI found this cool armour! You can have it, you'll need it if you're going deeper underground.",
+      "answers": [
+        {
+          "text": "Ooh that looks sweet. Thank you! Now head home",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:15"
+        }
+      ],
+      "exit": false
+    },
+    "85E70DC7-51D8-47B4-9820-866D12F367A4:19": {
+      "name": "Why wouldn't I be alive",
+      "tags": [],
+      "text": "Why wouldn't I be alive?? This dungeon is so cool! I've explored the whole floor.",
+      "answers": [
+        {
+          "text": "Did you find anyting?",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:18"
+        },
+        {
+          "text": "This place is dangerous. You should head back home",
+          "target": "85E70DC7-51D8-47B4-9820-866D12F367A4:15"
+        }
+      ],
+      "exit": false
     }
   },
   "entries": {
-    "CHILD_1": "85E70DC7-51D8-47B4-9820-866D12F367A4:1"
+    "CHILD_1": "85E70DC7-51D8-47B4-9820-866D12F367A4:1",
+    "CHILD_2": "85E70DC7-51D8-47B4-9820-866D12F367A4:11"
   }
 }

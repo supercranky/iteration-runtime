@@ -62,7 +62,9 @@ static int sprite_tint_prepare(void) {
     .colors[0].pixel_format = SG_PIXELFORMAT_BGRA8,
     .colors[0].blend = { .enabled = true,
       .src_factor_rgb = SG_BLENDFACTOR_ONE,
-      .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA }
+      .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+      .src_factor_alpha = SG_BLENDFACTOR_ONE,
+      .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA }
   });
   if (!sprite_tint_pipeline.id) {
     sg_destroy_shader(sprite_tint_shader);

@@ -628,8 +628,9 @@ static int js_point_init(JSContext *ctx, JSModuleDef *m)
 {
   JSValue point_proto, point_class;
 
-  /* create the Point class */
-  JS_NewClassID(&js_point_class_id);
+  state.atlas=JS_UNDEFINED;
+  /* Class IDs are process-wide, not per-VM. Reuse them across hard resets. */
+  if(!js_point_class_id)JS_NewClassID(&js_point_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_point_class_id, &js_point_class);
 
   point_proto = JS_NewObject(ctx);
@@ -645,7 +646,7 @@ static int js_point_init(JSContext *ctx, JSModuleDef *m)
   JSValue rect_proto, rect_class;
 
   /* create the Rect class */
-  JS_NewClassID(&js_rect_class_id);
+  if(!js_rect_class_id)JS_NewClassID(&js_rect_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_rect_class_id, &js_rect_class);
 
   rect_proto = JS_NewObject(ctx);
@@ -661,7 +662,7 @@ static int js_point_init(JSContext *ctx, JSModuleDef *m)
   JSValue sprite_proto, sprite_class;
 
   /* create the Sprite class */
-  JS_NewClassID(&js_sprite_class_id);
+  if(!js_sprite_class_id)JS_NewClassID(&js_sprite_class_id);
   JS_NewClass(JS_GetRuntime(ctx), js_sprite_class_id, &js_sprite_class);
 
   sprite_proto = JS_NewObject(ctx);

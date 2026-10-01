@@ -12,7 +12,14 @@ fips_files(lib/)
 
 fips_files(iteration-sapp.c)
 
-fips_files(runtime.c)
+fips_files(runtime.c hot_reload.c asset_fetch.c)
+if(FIPS_IOS)
+  fips_files(hot_reload_ios.m)
+  set_source_files_properties(hot_reload_ios.m PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_definitions(-DITERATION_HOT_RELOAD_NO_WASM=1)
+  endif()
+endif()
 fips_files(particles/particle_system.c particles/particle_system.h)
 fips_files(particles/particle_js.c particles/particle_js.h)
 fips_files(engines/engines.c)
@@ -79,6 +86,13 @@ if(FIPS_IOS AND NOT iteration_use_application_plugins)
 endif()
 
 fips_end_app()
+
+# Optional application-owned local development endpoint; never a runtime default.
+if(FIPS_IOS AND NOT "$ENV{ITERATION_HOT_RELOAD_CONFIG}" STREQUAL "")
+  set(iteration_hot_config "$ENV{ITERATION_HOT_RELOAD_CONFIG}")
+  target_sources(iteration-sapp PRIVATE "${iteration_hot_config}")
+  set_source_files_properties("${iteration_hot_config}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources/assets)
+endif()
 
 # App-owned iOS branding, kept outside the reusable runtime checkout.
 if(FIPS_IOS AND NOT "$ENV{ITERATION_APPLICATION_IOS_ASSETS}" STREQUAL "")

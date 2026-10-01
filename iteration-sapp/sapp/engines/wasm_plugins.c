@@ -11,6 +11,8 @@
 #elif defined(ITERATION_WAMR)
 #include "sokol_fetch.h"
 #include "util/fileutil.h"
+#include "../hot_reload.h"
+#include "../asset_fetch.h"
 #include "wasm_export.h"
 #endif
 
@@ -460,8 +462,8 @@ JSValue js_engine_load_wasm(JSContext *ctx, JSValueConst this_val,
   wasm_state.loads[request_id].active = 1;
   wasm_state.loads[request_id].ctx = ctx;
   wasm_state.loads[request_id].callback = JS_DupValue(ctx, argv[1]);
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path(path, asset_path, sizeof(asset_path)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path(path, asset_path, sizeof(asset_path)),
       .callback = wasm_native_fetch_callback,
       .buffer = {.ptr = buffer, .size = ITERATION_WASM_FETCH_SIZE},
       .user_data = {.ptr = &request_id, .size = sizeof(request_id)}});

@@ -36,6 +36,9 @@
 
 #include "runtime.h"
 #include "timers.h"
+#include "hot_reload.h"
+#include "asset_fetch.h"
+#include "runtime_vm.h"
 
 #if defined(__ANDROID__)
 #include <android/native_activity.h>
@@ -73,6 +76,7 @@ static struct
   uint8_t file_buffer[256 * 1024];
   uint8_t javascript_file_buffer[5 * 1024 * 1024];
   JSContext *ctx;
+  int reload_waiting;
 } state;
 
 typedef struct
@@ -88,6 +92,7 @@ typedef struct
 
 static void fetch_callback(const sfetch_response_t *);
 static void fetch_javascript_callback(const sfetch_response_t *);
+static void cleanup(void);
 
 static JSValue js_print(JSContext *ctx, JSValueConst this_val,
                         int argc, JSValueConst *argv)
@@ -195,7 +200,9 @@ static void init(void)
       .blend = {
           .enabled = true,
           .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
-          .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA},
+          .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+          .src_factor_alpha = SG_BLENDFACTOR_ONE,
+          .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA},
       .layout = {.attrs = {[ATTR_vs_pos].format = SG_VERTEXFORMAT_FLOAT3, [ATTR_vs_texcoord0].format = SG_VERTEXFORMAT_SHORT2N}},
       .index_type = SG_INDEXTYPE_UINT16,
       //.depth_stencil = {.depth_compare_func = SG_COMPAREFUNC_LESS_EQUAL, .depth_write_enabled = true},
@@ -208,12 +215,14 @@ static void init(void)
       .colors[0].blend = {
           .enabled = true,
           .src_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_BLEND_ALPHA,
-          .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA}});
+          .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+          .src_factor_alpha = SG_BLENDFACTOR_ONE,
+          .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA}});
   //.depth_stencil = {.depth_write_enabled = true, .depth_compare_func = SG_COMPAREFUNC_LESS_EQUAL}});
 
   char *code = "console.log('Hello from quickJS WASM!');";
 
-  JSRuntime *runtime = JS_NewRuntime();
+  JSRuntime *runtime = JS_NewRuntime2(&vm_allocator, NULL);
 
   js_std_init_handlers(runtime);
 
@@ -223,6 +232,8 @@ static void init(void)
                           js_module_check_attributes, NULL);
 
   JSContext *ctx = state.ctx;
+  hot_reload_install(ctx);
+  hot_reload_start();
 
   // js_std_add_helpers(ctx, 0, NULL);
 
@@ -247,6 +258,8 @@ static void init(void)
   JS_SetPropertyStr(ctx, global_obj, "process", process);
 
   JSValue result = JS_Eval(ctx, code, strlen(code), "eval.js", JS_EVAL_TYPE_GLOBAL);
+  JS_FreeValue(ctx,result);
+  JS_FreeValue(ctx,global_obj);
 
   js_init_module_engine(ctx, "runtime");
   js_init_module_engines(ctx, "engines");
@@ -256,8 +269,8 @@ static void init(void)
   SOKOL_LOG("Loading javascript");
   char path_buf[512];
 
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path("index.js", path_buf, sizeof(path_buf)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path("index.js", path_buf, sizeof(path_buf)),
       .callback = fetch_javascript_callback,
       .buffer = SFETCH_RANGE(state.javascript_file_buffer)});
 
@@ -413,16 +426,25 @@ static void js_execute_jobs(JSContext *ctx)
 */
 static void frame(void)
 {
-
+  if(state.reload_waiting)return;
   sfetch_dowork();
   // js_std_loop(state.ctx);
   js_execute_jobs(state.ctx);
   js_update_timers(state.ctx);
   engine_frame();
+  // No frame callbacks, asset callbacks or jobs may retain the old context
+  // across this boundary. The transport itself lives outside the VM.
+  int reload=asset_fetch_busy()?0:hot_reload_tick(state.ctx);
+  if(reload==1) {
+    cleanup();
+    memset(&state,0,sizeof(state));
+    init();
+  } else if(reload==2) state.reload_waiting=1;
 }
 
 static void event(const sapp_event *e)
 {
+  if(state.reload_waiting)return;
   assert((e->type >= 0) && (e->type < _SAPP_EVENTTYPE_NUM));
 
   engine_handle_event(e);
@@ -464,8 +486,13 @@ static void event(const sapp_event *e)
 static void cleanup(void)
 {
   engine_shutdown();
+  hot_reload_forget(state.ctx);
+  js_std_free_handlers(JS_GetRuntime(state.ctx));
+  JS_FreeContext(state.ctx);
+  vm_release();
   __dbgui_shutdown();
   sfetch_shutdown();
+  sgl_shutdown();
   sg_shutdown();
 }
 
@@ -481,7 +508,15 @@ sapp_desc sokol_main(int argc, char *argv[])
       .width = 800,
       .height = 600,
       .fullscreen = true,
+#if defined(__EMSCRIPTEN__)
+      .sample_count = 1, // Disable web MSAA; retain full Retina resolution and native 4x MSAA.
+      // Safari's opaque WebGL context path is significantly slower at Retina
+      // resolutions. Alpha-capable, premultiplied presentation avoids that cost;
+      // applications clearing to alpha=1 remain visually opaque.
+      .composite_mode = SAPP_COMPOSITEMODE_PREMULTIPLIED,
+#else
       .sample_count = 4,
+#endif
       // NanoVG uses stencil winding for concave paths and light-mask holes.
       .depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL,
 #if defined(__EMSCRIPTEN__) || (defined(__APPLE__) && TARGET_OS_IOS)

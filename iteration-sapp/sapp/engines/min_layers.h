@@ -5,9 +5,9 @@ static struct {
   NVGLUframebuffer *layer, *combined;
   GLuint program, vao;
   GLint framebuffer, viewport[4], sampler;
-  int image, width, height, active, group;
+  int image, width, height, active, group, first;
   uint64_t completed_frame;
-  int completed;
+  int completed, coverage_allowed;
 } min_layers;
 
 static GLuint min_layer_shader(GLenum type, const char *source)
@@ -78,35 +78,38 @@ static int min_layers_begin(NVGcontext **vg, int reset)
   glGetIntegerv(GL_FRAMEBUFFER_BINDING, &min_layers.framebuffer);
   glGetIntegerv(GL_VIEWPORT, min_layers.viewport);
   if (!min_layers_prepare(*vg,sapp_width(),sapp_height())) { min_layers_restore(); return 0; }
+  gpu_profile_begin(0);
   glViewport(0,0,min_layers.width,min_layers.height);
   glDisable(GL_SCISSOR_TEST); glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
-  if (reset) {
-    glBindFramebuffer(GL_FRAMEBUFFER,min_layers.combined->fbo);
-    glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT);
-  }
-  glBindFramebuffer(GL_FRAMEBUFFER,min_layers.layer->fbo);
+  /* min(1, firstAlpha) == firstAlpha. Render the first layer directly into
+     the accumulator: no scratch copy, destination read, or second clear. */
+  min_layers.first = reset;
+  glBindFramebuffer(GL_FRAMEBUFFER,reset ? min_layers.combined->fbo : min_layers.layer->fbo);
   glStencilMask(0xff); glClearStencil(0); glClearColor(0,0,0,0);
   glClear(GL_COLOR_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
   glBlendEquation(GL_FUNC_ADD);
   /* Match the existing runtime's NanoVG coordinate system exactly. */
   nvgBeginFrame(min_layers.vg,sapp_width(),sapp_height(),1.0f);
-  *vg=min_layers.vg; min_layers.active=1; return 1;
+  *vg=min_layers.vg; min_layers.active=1; min_layers.coverage_allowed=1; return 1;
 }
 static int min_layers_end(NVGcontext **vg, int present)
 {
   if (!min_layers.active) return 0;
   glBindVertexArray(0);
   nvgEndFrame(min_layers.vg); *vg=min_layers.main; min_layers.active=0;
-  glBindFramebuffer(GL_FRAMEBUFFER,min_layers.combined->fbo);
-  glViewport(0,0,min_layers.width,min_layers.height);
-  glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);
-  glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
-  glUseProgram(min_layers.program); glBindVertexArray(min_layers.vao);
-  glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,min_layers.layer->texture);
-  glUniform1i(min_layers.sampler,0);
-  glEnable(GL_BLEND);glBlendEquation(GL_MIN);glBlendFunc(GL_ONE,GL_ONE);
-  glDrawArrays(GL_TRIANGLES,0,3);
+  if (!min_layers.first) {
+    glBindFramebuffer(GL_FRAMEBUFFER,min_layers.combined->fbo);
+    glViewport(0,0,min_layers.width,min_layers.height);
+    glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    glUseProgram(min_layers.program); glBindVertexArray(min_layers.vao);
+    glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,min_layers.layer->texture);
+    glUniform1i(min_layers.sampler,0);
+    glEnable(GL_BLEND);glBlendEquation(GL_MIN);glBlendFunc(GL_ONE,GL_ONE);
+    glDrawArrays(GL_TRIANGLES,0,3);
+  }
   min_layers_restore();
+  gpu_profile_end();
   if (present) {
     min_layers.group=0;
     min_layers.completed=1;
@@ -114,6 +117,11 @@ static int min_layers_end(NVGcontext **vg, int present)
     nvgSave(*vg);nvgResetTransform(*vg);
     nvgBeginPath(*vg);nvgRect(*vg,0,0,sapp_width(),sapp_height());
     NVGpaint paint=nvgImagePattern(*vg,0,0,sapp_width(),sapp_height(),0,min_layers.image,1);
+    /* The old accumulator started at RGB=0, so GL_MIN always produced black,
+       even for colored layer commands. Preserve that at presentation; only
+       alpha is meaningful to consumers (including masked particles). */
+    paint.innerColor.r=paint.innerColor.g=paint.innerColor.b=0;
+    paint.outerColor.r=paint.outerColor.g=paint.outerColor.b=0;
     // The bundled NanoVG FLIPY flag negates Y without translating by height.
     paint.xform[3]=-1; paint.xform[5]=(float)sapp_height();
     nvgFillPaint(*vg,paint);
@@ -123,10 +131,12 @@ static int min_layers_end(NVGcontext **vg, int present)
 }
 static void min_layers_abort(NVGcontext **vg)
 {
-  if(min_layers.active){nvgCancelFrame(min_layers.vg);*vg=min_layers.main;min_layers_restore();}
+  if(min_layers.active){nvgCancelFrame(min_layers.vg);*vg=min_layers.main;min_layers_restore();gpu_profile_end();}
   min_layers.active=0;min_layers.group=0;
 }
 static int min_layers_balanced(void){return !min_layers.active;}
+static int min_layers_coverage_allowed(void){return min_layers.active && min_layers.coverage_allowed;}
+static void min_layers_close_coverage(void){min_layers.coverage_allowed=0;}
 static uint32_t min_layers_texture(void){return min_layers.completed && min_layers.completed_frame==sapp_frame_count() && min_layers.combined ? (uint32_t)min_layers.combined->texture : 0;}
 #else
 static int min_layers_begin(NVGcontext **vg,int reset){(void)vg;(void)reset;return 0;}
@@ -134,5 +144,7 @@ static int min_layers_end(NVGcontext **vg,int present){(void)vg;(void)present;re
 static void min_layers_shutdown(void){}
 static void min_layers_abort(NVGcontext **vg){(void)vg;}
 static int min_layers_balanced(void){return 1;}
+static int min_layers_coverage_allowed(void){return 0;}
+static void min_layers_close_coverage(void){}
 static uint32_t min_layers_texture(void){return 0;}
 #endif

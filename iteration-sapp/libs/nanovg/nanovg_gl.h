@@ -112,6 +112,7 @@ enum NVGimageFlagsGL {
 #include <string.h>
 #include <math.h>
 #include "nanovg.h"
+#include "nanovg_indices.h"
 
 enum GLNVGuniformLoc {
 	GLNVG_LOC_VIEWSIZE,
@@ -167,6 +168,8 @@ struct GLNVGcall {
 	int triangleOffset;
 	int triangleCount;
 	int uniformOffset;
+	int fillIndexOffset, fillIndexCount;
+	int fringeIndexOffset, fringeIndexCount;
 };
 typedef struct GLNVGcall GLNVGcall;
 
@@ -227,6 +230,9 @@ struct GLNVGcontext {
 	int ctextures;
 	int textureId;
 	GLuint vertBuf;
+	GLuint indexBuf;
+	unsigned short* indices;
+	int cindices, nindices, indexedFill;
 #if defined NANOVG_GL3
 	GLuint vertArr;
 #endif
@@ -668,6 +674,7 @@ static int glnvg__renderCreate(void* uptr)
 	glGenVertexArrays(1, &gl->vertArr);
 #endif
 	glGenBuffers(1, &gl->vertBuf);
+	glGenBuffers(1, &gl->indexBuf);
 
 #if NANOVG_GL_USE_UNIFORMBUFFER
 	// Create UBOs
@@ -967,8 +974,14 @@ static void glnvg__fill(GLNVGcontext* gl, GLNVGcall* call)
 	glStencilOpSeparate(GL_FRONT, GL_KEEP, GL_KEEP, GL_INCR_WRAP);
 	glStencilOpSeparate(GL_BACK, GL_KEEP, GL_KEEP, GL_DECR_WRAP);
 	glDisable(GL_CULL_FACE);
-	for (i = 0; i < npaths; i++)
-		glDrawArrays(GL_TRIANGLE_FAN, paths[i].fillOffset, paths[i].fillCount);
+	if (gl->indexedFill && call->pathCount > 1) {
+		if (call->fillIndexCount)
+			glDrawElements(GL_TRIANGLES, call->fillIndexCount, GL_UNSIGNED_SHORT,
+				(const void*)((size_t)call->fillIndexOffset * sizeof(unsigned short)));
+	} else {
+		for (i = 0; i < npaths; i++)
+			glDrawArrays(GL_TRIANGLE_FAN, paths[i].fillOffset, paths[i].fillCount);
+	}
 	glEnable(GL_CULL_FACE);
 
 	// Draw anti-aliased pixels
@@ -980,9 +993,15 @@ static void glnvg__fill(GLNVGcontext* gl, GLNVGcall* call)
 	if (gl->flags & NVG_ANTIALIAS) {
 		glnvg__stencilFunc(gl, GL_EQUAL, 0x00, 0xff);
 		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-		// Draw fringes
-		for (i = 0; i < npaths; i++)
-			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
+		// Preserve path/triangle blending order while batching the strips.
+		if (gl->indexedFill && call->pathCount > 1) {
+			if (call->fringeIndexCount)
+				glDrawElements(GL_TRIANGLES, call->fringeIndexCount, GL_UNSIGNED_SHORT,
+					(const void*)((size_t)call->fringeIndexOffset * sizeof(unsigned short)));
+		} else {
+			for (i = 0; i < npaths; i++)
+				glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
+		}
 	}
 
 	// Draw fill
@@ -1073,6 +1092,51 @@ static void glnvg__renderCancel(void* uptr) {
 	gl->nuniforms = 0;
 }
 
+// Bounded to 393210 retained CPU index bytes/context. Large frames and OOM
+// retain the original draws. Never emit 0xffff (WebGL2 fixed-index restart).
+static int glnvg__prepareIndices(GLNVGcontext* gl)
+{
+	int i, j, pass, required, capacity;
+	gl->nindices = 0;
+	if (!gl->indexBuf || gl->nverts <= 0 || gl->nverts > NVG_INDEX_VERTEX_LIMIT) return 0;
+	for (i = 0; i < gl->ncalls; i++)
+		if (gl->calls[i].type == GLNVG_FILL && gl->calls[i].pathCount > 1) break;
+	if (i == gl->ncalls) return 0;
+	required = gl->nverts * 3;
+	if (gl->cindices < required) {
+		unsigned short* indices;
+		capacity = gl->cindices ? gl->cindices : 4096;
+		while (capacity < required) capacity = capacity > NVG_INDEX_CAPACITY_LIMIT/2 ? NVG_INDEX_CAPACITY_LIMIT : capacity*2;
+		indices = (unsigned short*)realloc(gl->indices, capacity * sizeof(unsigned short));
+		if (!indices) return 0;
+		gl->indices = indices;
+		gl->cindices = capacity;
+	}
+	for (i = 0; i < gl->ncalls; i++) {
+		GLNVGcall* call = &gl->calls[i];
+		if (call->type != GLNVG_FILL || call->pathCount < 2) continue;
+		for (pass = 0; pass < 2; pass++) {
+			int start = gl->nindices;
+			for (j = 0; j < call->pathCount; j++) {
+				GLNVGpath* path = &gl->paths[call->pathOffset+j];
+				int first = pass ? path->strokeOffset : path->fillOffset;
+				int count = pass ? path->strokeCount : path->fillCount;
+				if (first < 0 || count < 0 || count > gl->nverts || first > gl->nverts-count) return 0;
+				gl->nindices = nvg__appendPathIndices(gl->indices, gl->nindices, gl->cindices, first, count, pass);
+				if (gl->nindices < 0) return 0;
+			}
+			if (pass) {
+				call->fringeIndexOffset = start;
+				call->fringeIndexCount = gl->nindices-start;
+			} else {
+				call->fillIndexOffset = start;
+				call->fillIndexCount = gl->nindices-start;
+			}
+		}
+	}
+	return gl->nindices > 0;
+}
+
 static void glnvg__renderFlush(void* uptr)
 {
 	GLNVGcontext* gl = (GLNVGcontext*)uptr;
@@ -1116,6 +1180,10 @@ static void glnvg__renderFlush(void* uptr)
 #endif
 		glBindBuffer(GL_ARRAY_BUFFER, gl->vertBuf);
 		glBufferData(GL_ARRAY_BUFFER, gl->nverts * sizeof(NVGvertex), gl->verts, GL_STREAM_DRAW);
+		gl->indexedFill = glnvg__prepareIndices(gl);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->indexedFill ? gl->indexBuf : 0);
+		if (gl->indexedFill)
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, gl->nindices * sizeof(unsigned short), gl->indices, GL_STREAM_DRAW);
 		glEnableVertexAttribArray(0);
 		glEnableVertexAttribArray(1);
 		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(NVGvertex), (const GLvoid*)(size_t)0);
@@ -1148,6 +1216,7 @@ static void glnvg__renderFlush(void* uptr)
 
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 #if defined NANOVG_GL3
 		glBindVertexArray(0);
 #endif	
@@ -1449,6 +1518,8 @@ static void glnvg__renderDelete(void* uptr)
 	}
 	free(gl->textures);
 
+	if (gl->indexBuf != 0) glDeleteBuffers(1, &gl->indexBuf);
+	free(gl->indices);
 	free(gl->paths);
 	free(gl->verts);
 	free(gl->uniforms);

@@ -80,6 +80,135 @@ backup recovery and shutdown cleanup intact. Game schemas and migrations belong
 to the consuming app. Run `python3 tests/storage-files.py` and the consuming
 app's browser storage tests after changes. Windows storage rejects explicitly.
 
+## Particle rendering
+
+`engines/particle_mask.h` batches direct-light masked quads and samples the lighting
+texture per fragment; do not reintroduce per-system fullscreen particle targets.
+It flushes after the main NanoVG frame and before reserved UI sprites. Preserve
+premultiplied alpha, physical framebuffer coordinates and GL/Sokol state cleanup.
+Native culling is render-only: zero-scale local systems skip traversal, and other
+systems open a batch lazily only for visible particles. Simulation stays active.
+Run `tests/particle-culling.c` linked with `sapp/particles/particle_system.c`, the
+existing `iteration-sapp/tests/particle_system_test.c`, and the consuming Ner's
+`node scripts/verify-particle-mask.mjs` (also `--webkit`) after changes.
+
+## Retina font rasterization
+
+Fontstash scratch storage is bounded to 128 KiB per context. Do not reduce it to
+64,000 bytes: stb_truetype's 28-byte WASM active edges select a 56 KB allocation,
+leaving too little for large glyph outlines (Blackcastle `m` fails around 270px).
+Release builds silently cache blank glyphs; debug builds can assert. Run
+`tests/font-retina.c` both natively with ASAN/UBSAN and as Emscripten/Node WASM,
+passing Ner's `www/blackcastle.ttf`; native-only testing misses this architecture
+difference. Ner's `verify-game-over-text.mjs` checks the actual UI at DPR 1/2/3
+in Chromium and WebKit. Font appearance, layout and Retina scale must not change.
+
+## NanoVG fill batching
+
+The GL backend batches multi-path stencil fans and AA strips into indexed
+triangle lists, retaining primitive order/winding and original draws for
+single-path or oversized frames. `nanovg_indices.h` excludes index 0xffff
+(WebGL2 fixed restart); CPU index capacity is bounded to 196605 unsigned shorts
+per context. Preserve allocation-failure fallback, buffer cleanup, GL binding
+cleanup and exact blend/stencil semantics. Run `tests/nanovg-indices.c` with
+ASAN/UBSAN and Ner's lighting reference comparisons (`verify-lighting.mjs`, also
+`--webkit`), particles, additive graphics, Retina and persistence tests when
+changing this path. Desktop draw-count reductions are not iPhone FPS proof.
+
+## Coverage triangles
+
+Plugin opcode 19 is a generic black-alpha triangle mask with two affine distance
+fields mapped through unit-disk coverage. `engines/coverage_triangles.h` draws
+bounded batches (1536 vertices) with max/replace blending and logical scissor
+bounds. It is accepted only before NanoVG commands in a fresh minimum-alpha
+layer; do not reorder deferred paths or bypass this guard. Geometry belongs to
+the application plugin. `plugins/coverage_validation.h` validates packet shape,
+finite values and opacity before GPU access. Run `tests/coverage-command.c` under
+ASAN/UBSAN and Ner's penumbra, particles, additive, Retina and persistence browser
+tests after changes, including `verify-penumbra-sprite-state.mjs` for deferred
+terrain with multiple lights. Restore the scissor **rectangle**, not just its
+enable bit: `sg_reset_state_cache()` enables scissoring without resetting the box.
+Restore blend equation/scissor/bindings and Sokol state;
+release GPU objects at shutdown. Unsupported backends reject this optional opcode.
+
+## Minimum-alpha first layer
+
+`min_layers.h` renders the first layer straight into the cleared accumulator;
+subsequent layers use the scratch target and MIN blend. Preserve black-mask
+semantics by zeroing RGB in the final image paint, not with an extra masked clear.
+The accumulator's internal RGB is not meaningful: consumers (including particles)
+must sample alpha only. Keep stencil initialization and GL state restoration for
+both first and subsequent layers. Ner's `verify-light-layer-first.mjs` compares
+old/new runtime pixels, including colored, unbounded and multi-layer masks;
+`docs/light-layer-first.md` records the qualified desktop benchmark results.
+
+## Optional binary screen overlay
+
+`engines/screen_overlay.h` exposes a bounded R8 mask upload and explicit world/UI
+boundary on GLES3. Masks are an R8 texture array with 1–16 cached frames and a
+16 MiB total byte limit. `setScreenOverlayFrame` only selects a validated index;
+never reupload masks during animation. Cull tiles only if empty in every frame.
+Prepare before loading fonts: the second NanoVG context borrows
+the same font source bytes and owns its own glyph atlas. Finish world NanoVG and
+masked particles before the overlay; finish UI NanoVG before sprite layer 131.
+Do not move particles above the overlay or duplicate world draws. Empty mask tiles
+are omitted; clear fragments discard. Optional finite opacity [0,1] uses
+premultiplied blending below 1, skips drawing at 0, and preserves the original
+no-blend path at the default 1.
+Preserve the scissor rectangle and Sokol state, retain old masks on failed uploads,
+skip stale-size masks and release GPU/UI resources at shutdown. Ner's
+`verify-vignette.mjs` (Chromium and WebKit/DPR3) tests binary pixels, masked dust,
+UI/fonts, resize, upload counts and blend state. No iPhone speedup is established.
+
+## GPU diagnostics
+
+`engines/gpu_profile.h` adds opt-in sampled counters and WebGL timer queries.
+Preserve non-overlapping actual-submission scopes, bounded 96-query storage,
+ready-only reads, disjoint/context-loss invalidation and cleanup on disable.
+Never wait for GPU results or split NanoVG/Sokol batches for attribution. The
+native GLES backend reports timing unavailable, not CPU estimates. Count raw
+runtime/NanoVG GL calls plus public Sokol draw counters without double-counting.
+Per-engine work counters describe submissions, not draws or GPU time. Ner's
+`test-gpu-timer-pool.mjs` tests the real EM_JS lifecycle with a simulated driver;
+`verify-gpu-profile.mjs` verifies browser draw accounting and opt-in lifecycle.
+
+## Animation frame clock
+
+`Runtime.frameNow()` is latched at `engine_frame()` entry. Web reads the public
+`document.timeline.currentTime`, equal to the window rAF callback timestamp;
+native samples `CLOCK_MONOTONIC`. Missing/null browser timelines fall back to a
+single monotonic sample, with nondecreasing timestamps. Keep `Runtime.now()` live
+for profiling/deadlines. Do not replace this with an accumulated/smoothed frame
+duration, add a competing rAF loop, or read private Sokol timing fields. Ner's
+`verify-frame-clock.mjs` checks real callback timestamps under injected scheduling
+jitter, intra-frame consistency and fallback behavior in Chromium/WebKit.
+
+## Local hot reload
+
+`sapp/hot_reload.c` provides the generic `__runtimeHotReload` save/status/handoff
+bridge and opt-in web transport. `hot_reload_ios.m` polls an application-supplied
+`hot-reload.json`, stages SHA-256-verified complete writable generations, and
+atomically activates them. The optional `ITERATION_HOT_RELOAD_CONFIG` build hook
+copies the application's config; no server address is a runtime default.
+iOS Release defines `ITERATION_HOT_RELOAD_NO_WASM`: hot reload remains enabled,
+but staging skips WASM and asset resolution pins WASM to the installed bundle,
+ignoring additions/deletions and stale overrides. Native static-plugin builds
+also enforce this policy. Debug status reports `WASM locked`. Application Support
+overrides survive relaunch but are keyed to the installed config/entry point and
+WASM update policy. Ner's `test-hot-reload-ios.mjs --release` checks this policy;
+`verify-wasm2c.mjs` verifies repeated static-plugin teardown/reinitialization.
+
+All asset requests must use `asset_fetch` and `hot_reload_asset_path`, including
+models/plugins. Never reset from inside a callback: drain asset requests, capture
+application state, then stop native subsystems/workers before discarding the VM.
+`runtime_vm.h` owns a per-VM allocation domain because legacy JS bindings retain
+references; every external/native resource needs explicit shutdown before its
+bulk release. Register QuickJS class prototypes per VM but class IDs only once
+per process. Particle finalizers must not destroy systems after native shutdown.
+Ner's `test-hot-reload-ios.mjs` tests the actual Foundation transport without a
+phone; `verify-hot-reload.mjs --in-place` exercises repeated C VM/GPU resets using
+a temporary web transport override. Run normal browser reload tests as well.
+
 ## Coding notes
 
 - Use public Sokol APIs. Current Sokol uses image views, separate samplers, `sg_begin_pass()`, `sglue_environment()`, and `sglue_swapchain()`.

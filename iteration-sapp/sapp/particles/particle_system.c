@@ -8,6 +8,12 @@
 
 static ParticleSystem *systems;
 static uint32_t next_id = 1;
+static struct { float left,top,right,bottom; int enabled; } render_viewport;
+void particle_system_set_viewport(float left,float top,float right,float bottom) {
+  render_viewport.left=fminf(left,right);render_viewport.right=fmaxf(left,right);
+  render_viewport.top=fminf(top,bottom);render_viewport.bottom=fmaxf(top,bottom);
+  render_viewport.enabled=isfinite(left)&&isfinite(top)&&isfinite(right)&&isfinite(bottom);
+}
 
 static float rng01(ParticleSystem *s) {
   uint32_t x = s->rng ? s->rng : 0x6d2b79f5u;
@@ -154,12 +160,26 @@ void particle_system_update(ParticleSystem*s,float dt){if(!s||s->paused||dt<=0)r
 }
 void particle_system_update_all(float dt){for(ParticleSystem*s=systems;s;s=s->next)particle_system_update(s,dt);}
 
-static void render_systems(ParticleDrawFn draw,int filter){if(!draw)return;for(ParticleSystem*s=systems;s;s=s->next){if(filter>=0&&!!s->mask_direct_light!=filter)continue;ParticlePool*p=&s->pool;if(s->texture_id<0||!p->count)continue;draw(0,s->texture_id,s->texture_width,s->texture_height,0,0,0,0,0,s->mask_direct_light,s->mask_threshold,s->mask_softness);for(uint32_t i=0;i<p->count;i++){
+static void render_systems(ParticleDrawFn draw,int filter){if(!draw)return;for(ParticleSystem*s=systems;s;s=s->next){if(filter>=0&&!!s->mask_direct_light!=filter)continue;ParticlePool*p=&s->pool;
+  /* Scale-zero local systems are hidden by the application. Keep simulating
+     their ages/RNG, but never start a render batch (or traverse their particles). */
+  if(s->texture_id<0||!p->count||(s->config.space==PARTICLE_SPACE_LOCAL&&s->scale==0))continue;
+  int started=0;float aspect=s->texture_width>0?(float)s->texture_height/s->texture_width:1;
+  float extent=.5f*sqrtf(1+aspect*aspect);
+  for(uint32_t i=0;i<p->count;i++){
+  if(!(p->opacity[i]>0))continue;
   float x=p->x[i],y=p->y[i],rot=p->rotation[i],size=p->size[i];
   for(uint32_t m=0;m<s->config.modifier_count;m++)if(s->config.modifiers[m].type==PARTICLE_MOD_OSCILLATION){float phase=p->random0[i]*2*PARTICLE_PI+p->age[i]*p->modifier_frequency[m][i]*2*PARTICLE_PI;float amount=sinf(phase)*p->modifier_strength[m][i];x+=s->config.modifiers[m].x*amount;y+=s->config.modifiers[m].y*amount;}
   if(s->config.space==PARTICLE_SPACE_LOCAL){float cs=cosf(s->rotation),sn=sinf(s->rotation),tx=x*s->scale,ty=y*s->scale;x=s->position_x+tx*cs-ty*sn;y=s->position_y+tx*sn+ty*cs;rot+=s->rotation;size*=s->scale;}
+  if(size==0)continue;
+  float radius=fabsf(size)*extent;
+  if(render_viewport.enabled&&(x+radius<render_viewport.left||x-radius>render_viewport.right||
+    y+radius<render_viewport.top||y-radius>render_viewport.bottom))continue;
+  /* Lazy begin also rejects entire offscreen systems without any GPU work.
+     A circumscribed rectangle radius includes rotation and non-square textures. */
+  if(!started){draw(0,s->texture_id,s->texture_width,s->texture_height,0,0,0,0,0,s->mask_direct_light,s->mask_threshold,s->mask_softness);started=1;}
   draw(1,s->texture_id,s->texture_width,s->texture_height,x,y,rot,size,p->opacity[i],s->mask_direct_light,s->mask_threshold,s->mask_softness);
-}draw(2,s->texture_id,s->texture_width,s->texture_height,0,0,0,0,0,s->mask_direct_light,s->mask_threshold,s->mask_softness);}}
+}if(started)draw(2,s->texture_id,s->texture_width,s->texture_height,0,0,0,0,0,s->mask_direct_light,s->mask_threshold,s->mask_softness);}}
 void particle_system_render_all(ParticleDrawFn draw){render_systems(draw,-1);}
 void particle_system_render_masked(ParticleDrawFn draw,int masked){render_systems(draw,!!masked);}
-void particle_system_shutdown_all(void){while(systems)particle_system_destroy(systems);}
+void particle_system_shutdown_all(void){while(systems)particle_system_destroy(systems);render_viewport.enabled=0;}

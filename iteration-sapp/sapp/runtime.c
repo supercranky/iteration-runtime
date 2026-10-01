@@ -8,6 +8,8 @@
 #include "stb/stb_image.h"
 #include "stb/stb_image_resize.h"
 #include "util/fileutil.h"
+#include "hot_reload.h"
+#include "asset_fetch.h"
 
 #include "dbgui/dbgui.h"
 
@@ -41,6 +43,7 @@
 
 #if defined(SOKOL_METAL)
 #include "nanovg_mtl.h"
+#include "engines/gpu_profile.h"
 
 #else
 #if defined(__APPLE__) && defined(SOKOL_GLES3)
@@ -52,6 +55,7 @@
 #include <GLFW/glfw3.h>
 #endif
 
+#include "engines/gpu_profile.h"
 #define NANOVG_GLES2_IMPLEMENTATION
 
 #include "nanovg/nanovg_gl.h"
@@ -68,6 +72,8 @@
 #include "models/models.h"
 
 static uint32_t min_layers_texture(void);
+static NVGcontext *screen_world_vg, *screen_ui_vg;
+static int screen_fonts_loaded;
 
 #define FETCH_BUFFER_SIZE 1024 * 1024
 
@@ -91,6 +97,7 @@ static struct
   sg_view texture_views[256];
   sg_sampler sampler;
   sg_sampler nearest_sampler;
+  int sprite_pixel_snapping_disabled; // default zero: preserve pixel-art snapping
   float sprite_pixel_scale;
   float sprite_pixel_origin_x;
   float sprite_pixel_origin_y;
@@ -119,6 +126,8 @@ static struct
   int count;
 
   NVGcontext *vg;
+  void *font_bytes[256];
+  unsigned font_count;
 } state;
 
 typedef struct
@@ -795,15 +804,49 @@ static JSValue js_engine_get_screen_bottom(JSContext *ctx, JSValueConst this_val
   return bottom_js;
 }
 
+static double runtime_now_ms(void)
+{
+#if defined(__EMSCRIPTEN__)
+  return emscripten_get_now();
+#else
+  struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+  return (double)now.tv_sec*1000.0+(double)now.tv_nsec/1000000.0;
+#endif
+}
+
+static double runtime_frame_time_ms;
+static int runtime_frame_time_valid;
+static void runtime_capture_frame_time(void)
+{
+  double timestamp;
+#if defined(__EMSCRIPTEN__)
+  /* Window rAF timestamps equal document.timeline.currentTime. Read that public
+   * timeline once: unlike performance.now(), callback scheduling/work cannot
+   * move it forward within this frame. No extra rAF loop or Sokol internals. */
+  timestamp=EM_ASM_DOUBLE({
+    var timeline=typeof document !== 'undefined' ? document.timeline : null;
+    var t=timeline ? timeline.currentTime : null;
+    return typeof t === 'number' && isFinite(t) && t >= 0 ? t : -1;
+  });
+  if(!isfinite(timestamp)||timestamp<0)timestamp=runtime_now_ms();
+#else
+  timestamp=runtime_now_ms();
+#endif
+  /* Guard a transition out of the fallback clock against a backward step. */
+  if(runtime_frame_time_valid&&timestamp<runtime_frame_time_ms)timestamp=runtime_frame_time_ms;
+  runtime_frame_time_ms=timestamp;runtime_frame_time_valid=1;
+}
+
 static JSValue js_engine_now(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
 {
   (void)this_val; (void)argc; (void)argv;
-#if defined(__EMSCRIPTEN__)
-  return JS_NewFloat64(ctx, emscripten_get_now());
-#else
-  struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
-  return JS_NewFloat64(ctx, (double)now.tv_sec*1000.0+(double)now.tv_nsec/1000000.0);
-#endif
+  return JS_NewFloat64(ctx,runtime_now_ms());
+}
+
+static JSValue js_engine_frame_now(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)
+{
+  (void)this_val; (void)argc; (void)argv;
+  return JS_NewFloat64(ctx,runtime_frame_time_valid?runtime_frame_time_ms:runtime_now_ms());
 }
 
 static JSValue js_engine_get_frame_duration(JSContext *ctx, JSValueConst this_val,
@@ -907,8 +950,8 @@ static JSValue js_engine_load_text(JSContext *ctx, JSValueConst this_val,
   char *buffer = malloc(FETCH_BUFFER_SIZE);
   char path_buf[512];
 
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path(filename, path_buf, sizeof(path_buf)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path(filename, path_buf, sizeof(path_buf)),
       .callback = fetch_engine_load_text_callback,
       .buffer = {
           .ptr = buffer,
@@ -944,8 +987,8 @@ static JSValue js_engine_load_texture(JSContext *ctx, JSValueConst this_val,
   char *buffer = malloc(FETCH_BUFFER_SIZE);
   char path_buf[512];
 
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path(filename, path_buf, sizeof(path_buf)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path(filename, path_buf, sizeof(path_buf)),
       .callback = fetch_engine_load_texture_callback,
       .buffer = {
           .ptr = buffer,
@@ -967,8 +1010,8 @@ void engine_request_particle_texture(const char *filename, uint32_t particle_id)
   char *buffer = malloc(FETCH_BUFFER_SIZE);
   char path_buf[512];
   if (!buffer) { js_free(state.ctx, request); return; }
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path(filename, path_buf, sizeof(path_buf)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path(filename, path_buf, sizeof(path_buf)),
       .callback = fetch_engine_load_texture_callback,
       .buffer = {.ptr = buffer, .size = FETCH_BUFFER_SIZE},
       .user_data = {.ptr = request, .size = sizeof(*request)}});
@@ -1000,8 +1043,8 @@ static JSValue js_engine_load_sound(JSContext *ctx, JSValueConst this_val,
   char *buffer = malloc(FETCH_BUFFER_SIZE);
   char path_buf[512];
 
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path(filename, path_buf, sizeof(path_buf)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path(filename, path_buf, sizeof(path_buf)),
       .callback = fetch_engine_load_sound_callback,
       .buffer = {
           .ptr = buffer,
@@ -1036,8 +1079,8 @@ static JSValue js_engine_load_font(JSContext *ctx, JSValueConst this_val,
   char *buffer = malloc(FETCH_BUFFER_SIZE);
   char path_buf[512];
 
-  sfetch_send(&(sfetch_request_t){
-      .path = fileutil_get_path(filename, path_buf, sizeof(path_buf)),
+  asset_fetch(&(sfetch_request_t){
+      .path = hot_reload_asset_path(filename, path_buf, sizeof(path_buf)),
       .callback = fetch_engine_load_font_callback,
       .buffer = {
           .ptr = buffer,
@@ -1162,10 +1205,25 @@ static JSValue js_engine_set_touchmove_callback(JSContext *ctx, JSValueConst thi
 // Snap final textured vertices, including rotation and anchor offsets, to
 // framebuffer pixels. The viewport accounts for high-DPI devices and zoom;
 // rounding shared tile edges identically avoids gaps between adjacent tiles.
+static JSValue js_engine_set_sprite_pixel_snapping(JSContext *ctx, JSValueConst this_val,
+                                                   int argc, JSValueConst *argv)
+{
+  if (argc < 1) return JS_ThrowTypeError(ctx, "setSpritePixelSnapping requires enabled");
+  int enabled = JS_ToBool(ctx, argv[0]);
+  if (enabled < 0) return JS_EXCEPTION;
+  state.sprite_pixel_snapping_disabled = !enabled;
+  return JS_UNDEFINED;
+}
+static JSValue js_engine_get_sprite_pixel_snapping(JSContext *ctx, JSValueConst this_val,
+                                                   int argc, JSValueConst *argv)
+{
+  return JS_NewBool(ctx, !state.sprite_pixel_snapping_disabled);
+}
+
 static void sprite_pixel_vertex_tinted(float x, float y, float u, float v, float amount)
 {
   float scale = state.sprite_pixel_scale;
-  if (scale > 0.0f) {
+  if (scale > 0.0f && !state.sprite_pixel_snapping_disabled) {
     x = (floorf(x * scale + state.sprite_pixel_origin_x + 0.5f) - state.sprite_pixel_origin_x) / scale;
     y = (floorf(y * scale + state.sprite_pixel_origin_y + 0.5f) - state.sprite_pixel_origin_y) / scale;
   }
@@ -1180,6 +1238,7 @@ static void sprite_pixel_vertex(float x, float y, float u, float v)
 static JSValue js_engine_draw_texture(JSContext *ctx, JSValueConst this_val,
                                       int argc, JSValueConst *argv)
 {
+  if(gpu_profile.sampling)gpu_profile.work[0]++;
   JSValueConst x, y, anchor_x, anchor_y, scale, alpha, rotation;
 
   x = argv[0];
@@ -1290,6 +1349,7 @@ static JSValue js_engine_draw_texture(JSContext *ctx, JSValueConst this_val,
 static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val,
                                            int argc, JSValueConst *argv)
 {
+  if(gpu_profile.sampling)gpu_profile.work[0]++;
   double source_x;
   double source_y;
   double source_width;
@@ -1414,6 +1474,7 @@ static JSValue js_engine_draw_texture_clip(JSContext *ctx, JSValueConst this_val
 
 void engine_draw_texture_clip(double source_x, double source_y, double source_width, double source_height, double x, double y, double anchor_x, double anchor_y, double rotation, double scale, double alpha)
 {
+  if(gpu_profile.sampling)gpu_profile.work[0]++;
   double topLeftX, topLeftY, bottomLeftX, bottomLeftY, topRightX, topRightY, bottomRightX, bottomRightY;
   double topLeftXRot, topLeftYRot, bottomLeftXRot, bottomLeftYRot, topRightXRot, topRightYRot, bottomRightXRot, bottomRightYRot;
 
@@ -1492,27 +1553,7 @@ void engine_draw_texture_clip(double source_x, double source_y, double source_wi
   }
 }
 
-#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-static struct {
-  NVGcontext *vg;
-  NVGLUframebuffer *particles, *masked;
-  GLuint program, vao;
-  int source_images[256], output_image, width, height;
-  GLint framebuffer, viewport[4];
-  float threshold, softness;
-  int active, accumulated;
-} particle_mask;
-
-static GLuint particle_mask_shader(GLenum type,const char*source){GLuint shader=glCreateShader(type);glShaderSource(shader,1,&source,NULL);glCompileShader(shader);GLint ok=0;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);if(!ok){glDeleteShader(shader);return 0;}return shader;}
-static void particle_mask_targets_free(void){if(particle_mask.output_image)nvgDeleteImage(state.vg,particle_mask.output_image);if(particle_mask.particles)nvgluDeleteFramebuffer(particle_mask.particles);if(particle_mask.masked)nvgluDeleteFramebuffer(particle_mask.masked);particle_mask.output_image=0;particle_mask.particles=particle_mask.masked=NULL;}
-static int particle_mask_prepare(void){int width=sapp_width(),height=sapp_height();if(!particle_mask.vg)particle_mask.vg=nvgCreateGLES2(NVG_ANTIALIAS|NVG_STENCIL_STROKES);if(!particle_mask.vg)return 0;if(!particle_mask.program){GLuint vs=particle_mask_shader(GL_VERTEX_SHADER,"#version 300 es\nout vec2 uv;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);uv=p;gl_Position=vec4(p*2.-1.,0,1);}");GLuint fs=particle_mask_shader(GL_FRAGMENT_SHADER,"#version 300 es\nprecision highp float;in vec2 uv;uniform sampler2D particles;uniform sampler2D darkness;uniform float threshold;uniform float softness;out vec4 color;void main(){vec4 p=texture(particles,uv);float light=1.0-texture(darkness,uv).a;float visibility=smoothstep(threshold,threshold+max(softness,0.0001),light);color=p*visibility;}");if(!vs||!fs)return 0;particle_mask.program=glCreateProgram();glAttachShader(particle_mask.program,vs);glAttachShader(particle_mask.program,fs);glLinkProgram(particle_mask.program);glDeleteShader(vs);glDeleteShader(fs);GLint ok=0;glGetProgramiv(particle_mask.program,GL_LINK_STATUS,&ok);if(!ok)return 0;glGenVertexArrays(1,&particle_mask.vao);}if(!particle_mask.particles||width!=particle_mask.width||height!=particle_mask.height){particle_mask_targets_free();particle_mask.particles=nvgluCreateFramebuffer(particle_mask.vg,width,height,0);particle_mask.masked=nvgluCreateFramebuffer(particle_mask.vg,width,height,0);if(!particle_mask.particles||!particle_mask.masked)return 0;particle_mask.output_image=nvglCreateImageFromHandleGLES2(state.vg,particle_mask.masked->texture,width,height,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);particle_mask.width=width;particle_mask.height=height;}return particle_mask.output_image!=0;}
-static int particle_mask_begin(int texture_id,float threshold,float softness){uint32_t darkness=min_layers_texture();if(!darkness)return 0;glGetIntegerv(GL_FRAMEBUFFER_BINDING,&particle_mask.framebuffer);glGetIntegerv(GL_VIEWPORT,particle_mask.viewport);if(!particle_mask_prepare()){glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();return 0;}glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.particles->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_SCISSOR_TEST);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);nvgBeginFrame(particle_mask.vg,sapp_width(),sapp_height(),1.0f);particle_mask.threshold=threshold;particle_mask.softness=softness;if(!particle_mask.source_images[texture_id]){sg_gl_image_info info=sg_gl_query_image_info(state.textures[texture_id]);particle_mask.source_images[texture_id]=nvglCreateImageFromHandleGLES2(particle_mask.vg,info.tex[info.active_slot],state.texture_sizes[texture_id].widthTexture,state.texture_sizes[texture_id].heightTexture,NVG_IMAGE_NODELETE|NVG_IMAGE_PREMULTIPLIED);}return particle_mask.source_images[texture_id]!=0;}
-static void particle_mask_draw(int texture_id,int texture_width,int texture_height,float x,float y,float rotation,float size,float opacity){float sx=convert_local_x_to_screen(x),sy=convert_local_y_to_screen(y),w=scale_local_to_screen(size),h=texture_width>0?w*(float)texture_height/(float)texture_width:w;nvgSave(particle_mask.vg);nvgTranslate(particle_mask.vg,sx,sy);nvgRotate(particle_mask.vg,rotation);nvgGlobalAlpha(particle_mask.vg,opacity);nvgBeginPath(particle_mask.vg);nvgRect(particle_mask.vg,-w*.5f,-h*.5f,w,h);NVGpaint paint=nvgImagePattern(particle_mask.vg,-w*.5f,-h*.5f,w,h,0,particle_mask.source_images[texture_id],1);nvgFillPaint(particle_mask.vg,paint);nvgFill(particle_mask.vg);nvgRestore(particle_mask.vg);}
-static void particle_mask_end(void){nvgEndFrame(particle_mask.vg);glBindFramebuffer(GL_FRAMEBUFFER,particle_mask.masked->fbo);glViewport(0,0,particle_mask.width,particle_mask.height);glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);if(!particle_mask.accumulated){glClearColor(0,0,0,0);glClear(GL_COLOR_BUFFER_BIT);}glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);glUseProgram(particle_mask.program);glBindVertexArray(particle_mask.vao);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,particle_mask.particles->texture);glUniform1i(glGetUniformLocation(particle_mask.program,"particles"),0);glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_2D,min_layers_texture());glUniform1i(glGetUniformLocation(particle_mask.program,"darkness"),1);glUniform1f(glGetUniformLocation(particle_mask.program,"threshold"),particle_mask.threshold);glUniform1f(glGetUniformLocation(particle_mask.program,"softness"),particle_mask.softness);glDrawArrays(GL_TRIANGLES,0,3);glBindFramebuffer(GL_FRAMEBUFFER,(GLuint)particle_mask.framebuffer);glViewport(particle_mask.viewport[0],particle_mask.viewport[1],particle_mask.viewport[2],particle_mask.viewport[3]);sg_reset_state_cache();particle_mask.accumulated=1;}
-/* NanoVG defers texture reads until end-frame. Present the accumulated rooms
-   once, after every system has finished writing to this frame's target. */
-static void particle_mask_present(void){if(!particle_mask.accumulated)return;nvgSave(state.vg);nvgResetTransform(state.vg);nvgBeginPath(state.vg);nvgRect(state.vg,0,0,sapp_width(),sapp_height());NVGpaint paint=nvgImagePattern(state.vg,0,0,sapp_width(),sapp_height(),0,particle_mask.output_image,1);paint.xform[3]=-1;paint.xform[5]=(float)sapp_height();nvgFillPaint(state.vg,paint);nvgFill(state.vg);nvgRestore(state.vg);}
-#endif
+#include "engines/particle_mask.h"
 
 static void engine_draw_particle(int phase, int texture_id, int texture_width, int texture_height,
                                  float x, float y, float rotation, float size, float opacity,
@@ -1538,6 +1579,7 @@ static void engine_draw_particle(int phase, int texture_id, int texture_width, i
 static JSValue js_engine_draw_textured_triangle(JSContext *ctx, JSValueConst this_val,
                                                 int argc, JSValueConst *argv)
 {
+  if(gpu_profile.sampling)gpu_profile.work[0]++;
   double x1, y1, x2, y2, x3, y3, alpha;
 
   JS_ToFloat64(ctx, &x1, argv[0]);
@@ -1577,6 +1619,7 @@ static JSValue js_engine_draw_textured_triangle(JSContext *ctx, JSValueConst thi
 static JSValue js_engine_draw_triangle(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv)
 {
+  if(gpu_profile.sampling)gpu_profile.work[0]++;
   double x1, y1, x2, y2, x3, y3, r, g, b, a;
 
   JS_ToFloat64(ctx, &x1, argv[0]);
@@ -1803,6 +1846,7 @@ static JSValue js_engine_graphics_fill_color(JSContext *ctx, JSValueConst this_v
 static JSValue js_engine_graphics_fill(JSContext *ctx, JSValueConst this_val,
                                        int argc, JSValueConst *argv)
 {
+  if(gpu_profile.sampling)gpu_profile.work[1]++;
   nvgFill(state.vg);
   return JS_UNDEFINED;
 }
@@ -1910,6 +1954,7 @@ static JSValue js_engine_graphics_stroke_width(JSContext *ctx, JSValueConst this
 static JSValue js_engine_graphics_stroke(JSContext *ctx, JSValueConst this_val,
                                          int argc, JSValueConst *argv)
 {
+  if(gpu_profile.sampling)gpu_profile.work[1]++;
   nvgStroke(state.vg);
   return JS_UNDEFINED;
 }
@@ -1961,6 +2006,7 @@ static JSValue js_engine_graphics_text(JSContext *ctx, JSValueConst this_val,
 
   // SOKOL_LOG("what the %d %d %s", x, y, text);
 
+  if(gpu_profile.sampling)gpu_profile.work[1]++;
   nvgText(state.vg, x, y, text, NULL);
 
   return JS_UNDEFINED;
@@ -2007,12 +2053,14 @@ static JSValue js_engine_graphics_text_box(JSContext *ctx, JSValueConst this_val
       for (int i = 0; i < count; i++) {
         if (rows[i].start >= visible_end) break;
         const char *end = rows[i].end < visible_end ? rows[i].end : visible_end;
+        if(gpu_profile.sampling)gpu_profile.work[1]++;
         nvgTextBox(state.vg, x, y, row_width, rows[i].start, end);
         y += line_height;
       }
       cursor = rows[count - 1].next;
     }
   } else {
+    if(gpu_profile.sampling)gpu_profile.work[1]++;
     nvgTextBox(state.vg, x, y, row_width, text, NULL);
   }
   JS_FreeCString(ctx, text);
@@ -2315,13 +2363,19 @@ static void fetch_engine_load_font_callback(const sfetch_response_t *response)
     SOKOL_LOG("loadfont font loaded");
 
     // make copy of font data and create nanovg font
+    if(state.font_count>=256){free(response->data.ptr);return;}
     char *fontData = malloc((int)response->data.size);
+    if(!fontData){free(response->data.ptr);return;}
+    state.font_bytes[state.font_count++]=fontData;
     memcpy(fontData, response->data.ptr, (int)response->data.size);
 
     load_callback *callback = (load_callback *)response->user_data;
 
     char *name = JS_ToCString(state.ctx, callback->parameter);
-    int font = nvgCreateFontMem(state.vg, name, fontData, (int)response->data.size, 0);
+    int font = nvgCreateFontMem(screen_world_vg, name, fontData, (int)response->data.size, 0);
+    // Both contexts borrow the existing runtime-owned font bytes.
+    if(screen_ui_vg)nvgCreateFontMem(screen_ui_vg, name, fontData, (int)response->data.size, 0);
+    screen_fonts_loaded=1;
 
     JSValue fontObj = JS_NewObject(state.ctx);
 
@@ -2343,6 +2397,8 @@ static void fetch_engine_load_font_callback(const sfetch_response_t *response)
 }
 
 #include "engines/min_layers.h"
+#include "engines/coverage_triangles.h"
+#include "engines/screen_overlay.h"
 #include "engines/plugin_paths.h"
 
 static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, size_t size)
@@ -2371,11 +2427,18 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
     if (command.byte_size < sizeof(command) || command.byte_size > size - offset)
       return 0;
 
+    if(gpu_profile.sampling)gpu_profile.work[2]++;
     size_t advance=command.byte_size;
     uint32_t consumed_commands=1;
     double command_start=wasm_profile.active && wasm_profile.detailed ? wasm_profile_now() : 0;
+    if(command.opcode!=ITER_RENDER_COVERAGE_TRIANGLES &&
+       command.opcode!=ITER_RENDER_MIN_LAYER_FIRST && command.opcode!=ITER_RENDER_MIN_LAYER_NEXT)
+      min_layers_close_coverage();
     switch (command.opcode)
     {
+    case ITER_RENDER_COVERAGE_TRIANGLES:
+      if(!coverage_draw(bytes+offset,command.byte_size,w,h))return 0;
+      break;
     case ITER_RENDER_MIN_LAYER_FIRST:
     case ITER_RENDER_MIN_LAYER_NEXT:
       if (command.byte_size != sizeof(command) || !min_layers_begin(&state.vg, command.opcode == ITER_RENDER_MIN_LAYER_FIRST)) return 0;
@@ -2492,7 +2555,7 @@ static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, siz
       case ITER_RENDER_MIN_LAYER_FIRST: case ITER_RENDER_MIN_LAYER_NEXT:
       case ITER_RENDER_MIN_LAYER_END: case ITER_RENDER_MIN_LAYER_PRESENT:
         wasm_profile.layer_commands++;wasm_profile.layer_ms+=elapsed;break;
-      case ITER_RENDER_FILL: case ITER_RENDER_STROKE:
+      case ITER_RENDER_FILL: case ITER_RENDER_STROKE: case ITER_RENDER_COVERAGE_TRIANGLES:
         wasm_profile.fill_commands++;wasm_profile.fill_ms+=elapsed;break;
       case ITER_RENDER_FILL_COLOR: case ITER_RENDER_STROKE_COLOR:
       case ITER_RENDER_RADIAL_GRADIENT: case ITER_RENDER_STROKE_WIDTH:
@@ -2542,6 +2605,12 @@ static JSValue js_engine_set_sprite_layer(JSContext *ctx,JSValueConst self,int a
 }
 
 static const JSCFunctionListEntry js_my_module_funcs[] = {
+    JS_CFUNC_DEF("prepareScreenOverlay", 0, js_screen_overlay_prepare),
+    JS_CFUNC_DEF("setScreenOverlay", 6, js_screen_overlay_set),
+    JS_CFUNC_DEF("setScreenOverlayFrame", 1, js_screen_overlay_frame),
+    JS_CFUNC_DEF("clearScreenOverlay", 0, js_screen_overlay_clear),
+    JS_CFUNC_DEF("beginScreenUI", 0, js_screen_ui_begin),
+    JS_CFUNC_DEF("getFramebufferSize", 0, js_framebuffer_size),
     JS_CFUNC_DEF("setSpriteLayer", 1, js_engine_set_sprite_layer),
     JS_CFUNC_DEF("setWorldSpriteLastLayer", 1, js_models_set_last_layer),
     JS_CFUNC_DEF("setSpriteForeground", 1, js_engine_set_sprite_foreground),
@@ -2563,6 +2632,11 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("drawTextureClip", 11, js_engine_draw_texture_clip),
 
     JS_CFUNC_DEF("now", 0, js_engine_now),
+    JS_CFUNC_DEF("frameNow", 0, js_engine_frame_now),
+    JS_CFUNC_DEF("setGpuProfiling", 1, js_gpu_profile_enable),
+    JS_CFUNC_DEF("getGpuProfile", 0, js_gpu_profile_get),
+    JS_CFUNC_DEF("isGpuProfileSample", 0, js_gpu_profile_sampling),
+    JS_CFUNC_DEF("getRenderWork", 0, js_render_work),
     JS_CFUNC_DEF("graphicsSave", 0, js_engine_graphics_save),
     JS_CFUNC_DEF("graphicsRestore", 0, js_engine_graphics_restore),
     JS_CFUNC_DEF("graphicsCompositeOperation", 1, js_engine_graphics_composite_operation),
@@ -2617,6 +2691,8 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("getFrameCount", 0, js_engine_get_frame_count),
     JS_CFUNC_DEF("getPixelSize", 0, js_engine_get_pixel_size),
     JS_CFUNC_DEF("getFullscreenPixelSize", 0, js_engine_get_fullscreen_pixel_size),
+    JS_CFUNC_DEF("setSpritePixelSnapping", 1, js_engine_set_sprite_pixel_snapping),
+    JS_CFUNC_DEF("getSpritePixelSnapping", 0, js_engine_get_sprite_pixel_snapping),
 
     JS_CFUNC_DEF("loadSound", 2, js_engine_load_sound),
     JS_CFUNC_DEF("playSound", 3, js_engine_play_sound),
@@ -2706,24 +2782,39 @@ void drawButton(NVGcontext *vg, int preicon, const char *text, float x, float y,
 
 void engine_shutdown()
 {
+  runtime_frame_time_valid=0;
+  state.sprite_pixel_snapping_disabled=0;
+  gpu_profile_shutdown();
   storage_shutdown();
   sprite_tint_shutdown();
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-  particle_mask_targets_free();
-  for(int i=0;i<256;i++)if(particle_mask.source_images[i])nvgDeleteImage(particle_mask.vg,particle_mask.source_images[i]);
-  if(particle_mask.vg)nvgDeleteGLES2(particle_mask.vg);
-  if(particle_mask.program)glDeleteProgram(particle_mask.program);
-  if(particle_mask.vao)glDeleteVertexArrays(1,&particle_mask.vao);
-  memset(&particle_mask,0,sizeof(particle_mask));
+  particle_mask_shutdown();
 #endif
   models_shutdown();
   particle_js_shutdown();
   wasm_plugins_shutdown();
+  coverage_shutdown();
+  screen_overlay_shutdown();
   min_layers_shutdown();
+  if(state.soloud) {
+    Soloud_stopAll(state.soloud);
+    for(int i=0;i<state.loaded_sounds;i++)if(state.sounds[i])Wav_destroy(state.sounds[i]);
+    Soloud_deinit(state.soloud);Soloud_destroy(state.soloud);
+  }
+#if defined(SOKOL_METAL)
+  if(screen_world_vg)nvgDeleteMTL(screen_world_vg);
+#else
+  if(screen_world_vg)nvgDeleteGLES2(screen_world_vg);
+#endif
+  for(unsigned i=0;i<state.font_count;i++)free(state.font_bytes[i]);
+  screen_world_vg=NULL;screen_fonts_loaded=0;
+  memset(&state,0,sizeof(state));
 }
 
 void engine_frame()
 {
+  runtime_capture_frame_time();
+  state.vg=screen_world_vg;screen_ui_started=0;
   storage_poll();
   float width = sapp_width();
   float height = sapp_height();
@@ -2745,6 +2836,7 @@ void engine_frame()
       .action = state.pass_action,
       .swapchain = sglue_swapchain()});
 
+  gpu_profile_frame_begin();
   models_update(sapp_frame_duration());
 
   if (JS_IsFunction(state.ctx, engine_get_frame_callback()))
@@ -2754,12 +2846,16 @@ void engine_frame()
 
   particle_system_update_all((float)sapp_frame_duration());
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-  particle_mask.accumulated=0;
+  particle_mask_reset();
 #endif
+  float particle_left=get_translated_x(-500),particle_right=get_translated_x(500);
+  float particle_top=get_translated_y(-500),particle_bottom=get_translated_y(500);
+  float particle_pad_x=2*fabsf(particle_right-particle_left)/fmaxf(1,sapp_width());
+  float particle_pad_y=2*fabsf(particle_bottom-particle_top)/fmaxf(1,sapp_height());
+  particle_system_set_viewport(particle_left-particle_pad_x,particle_top-particle_pad_y,
+    particle_right+particle_pad_x,particle_bottom+particle_pad_y);
   particle_system_render_all(engine_draw_particle);
-#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-  particle_mask_present();
-#endif
+  gpu_profile_begin(1);
   sgl_draw_layer(0);
   sg_end_pass();
   models_render();
@@ -2771,14 +2867,28 @@ void engine_frame()
   //__dbgui_draw();
 
   sg_end_pass();
+  gpu_profile_end();
   // NanoVG uses raw GL and must not inherit model sampler/depth state.
   sg_reset_state_cache();
 
   if (state.vg != NULL)
   {
-    nvgEndFrame(state.vg);
+    gpu_profile_begin(2);
+    nvgEndFrame(screen_world_vg);
+    gpu_profile_end();
     sg_reset_state_cache();
   }
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  gpu_profile_begin(3);
+  particle_mask_present();
+  gpu_profile_end();
+#endif
+  gpu_profile_begin(4);
+  screen_overlay_present();
+  gpu_profile_end();
+  gpu_profile_begin(5);
+  if(screen_ui_started){nvgEndFrame(screen_ui_vg);sg_reset_state_cache();}
+  state.vg=screen_world_vg;
   // Reserved UI sprite layer: portraits/icons must sit above NanoVG panels.
   sg_begin_pass(&(sg_pass){.swapchain=sglue_swapchain(),.action={
       .colors[0].load_action=SG_LOADACTION_LOAD,
@@ -2786,6 +2896,8 @@ void engine_frame()
       .stencil.load_action=SG_LOADACTION_LOAD}});
   sgl_draw_layer(131);
   sg_end_pass();
+  gpu_profile_end();
+  gpu_profile_frame_end();
   sg_commit();
 }
 
@@ -2811,6 +2923,7 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
   }
 
   state.vg = vg;
+  screen_world_vg = vg;
 
   Soloud *soloud = Soloud_create();
   Soloud_initEx(soloud, SOLOUD_CLIP_ROUNDOFF | SOLOUD_ENABLE_VISUALIZATION,
@@ -2856,7 +2969,9 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
       .colors[0].blend = {
           .enabled = true,
           .src_factor_rgb = SG_BLENDFACTOR_ONE, // SG_BLENDFACTOR_SRC_ALPHA, // Let's try and make a fully premultiplied renderer
-          .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA}});
+          .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+          .src_factor_alpha = SG_BLENDFACTOR_ONE,
+          .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA}});
 
   state.ctx = ctx;
   models_init(ctx);

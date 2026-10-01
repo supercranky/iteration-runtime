@@ -304,7 +304,11 @@ int fons__tt_getGlyphKernAdvance(FONSttFontImpl *font, int glyph1, int glyph2)
 #endif
 
 #ifndef FONS_SCRATCH_BUF_SIZE
-#	define FONS_SCRATCH_BUF_SIZE 64000
+// stb_truetype's 28-byte WASM active edges select a 2000-edge (56 KB)
+// allocation, versus 800 edges on 64-bit hosts. Large Retina glyphs can
+// exceed 64 KB including their outlines, silently caching blank bitmaps
+// in release builds (e.g. Blackcastle 'm' at 270px). Keep storage bounded.
+#	define FONS_SCRATCH_BUF_SIZE (128 * 1024)
 #endif
 #ifndef FONS_HASH_LUT_SIZE
 #	define FONS_HASH_LUT_SIZE 256

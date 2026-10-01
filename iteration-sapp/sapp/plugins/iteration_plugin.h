@@ -3,6 +3,7 @@
 /* Stable, renderer-independent ABI shared by WebAssembly and native plugins. */
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define ITERATION_PLUGIN_ABI_VERSION 1u
 #define ITERATION_RENDER_MAGIC 0x42524349u /* "ICRB", little endian */
@@ -42,7 +43,8 @@ typedef enum iteration_render_opcode
   ITER_RENDER_MIN_LAYER_FIRST = 15,
   ITER_RENDER_MIN_LAYER_NEXT = 16,
   ITER_RENDER_MIN_LAYER_END = 17,
-  ITER_RENDER_MIN_LAYER_PRESENT = 18
+  ITER_RENDER_MIN_LAYER_PRESENT = 18,
+  ITER_RENDER_COVERAGE_TRIANGLES = 19
 } iteration_render_opcode;
 
 typedef struct iteration_render_buffer
@@ -118,6 +120,23 @@ typedef struct iteration_radial_gradient_command
   float outer_alpha;
 } iteration_radial_gradient_command;
 
+// Two affine signed-distance fields, each numerator / length(vector), mapped
+// through a unit-disk coverage curve. Coverage = clamp(CDF(a)+CDF(b)-1).
+// Coordinates use the same logical viewport space as paths. Must precede all
+// NanoVG commands inside a fresh minimum-alpha layer. Blend 0=max, 1=replace.
+#define ITER_COVERAGE_MAX_VERTICES 1536
+#define ITER_COVERAGE_MAX 0
+#define ITER_COVERAGE_REPLACE 1
+typedef struct iteration_coverage_vertex {
+  float x, y, a[3], b[3], opacity;
+} iteration_coverage_vertex;
+typedef struct iteration_coverage_command {
+  iteration_render_command header;
+  uint32_t count, blend;
+  float left, top, right, bottom;
+  // count iteration_coverage_vertex values follow this header.
+} iteration_coverage_command;
+
 typedef struct iteration_plugin_result
 {
   int32_t status;
@@ -166,6 +185,20 @@ static inline uint32_t iteration_graphics_finish(iteration_graphics_writer *writ
   buffer->byte_length = writer->length;
   buffer->command_count = writer->command_count;
   return writer->length;
+}
+
+static inline void graphicsCoverageTriangles(iteration_graphics_writer *writer,
+    uint32_t blend, const float bounds[4], const iteration_coverage_vertex *vertices, uint32_t count)
+{
+  if (!count || count > ITER_COVERAGE_MAX_VERTICES || count % 3 || blend > 1) {
+    writer->error = 1; return;
+  }
+  iteration_coverage_command *command = (iteration_coverage_command *)iteration_graphics_push(
+      writer, ITER_RENDER_COVERAGE_TRIANGLES, sizeof(*command) + count * sizeof(*vertices));
+  if (!command) return;
+  command->count=count; command->blend=blend;
+  command->left=bounds[0]; command->top=bounds[1]; command->right=bounds[2]; command->bottom=bounds[3];
+  memcpy(command+1, vertices, count*sizeof(*vertices));
 }
 
 static inline void graphicsCommand(iteration_graphics_writer *writer, uint16_t opcode)
