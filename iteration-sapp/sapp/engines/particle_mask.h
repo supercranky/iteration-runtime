@@ -6,10 +6,11 @@
 #define PARTICLE_MASK_MAX_VERTICES (32768u * 6u)
 #define PARTICLE_MASK_MAX_BATCHES 4096u
 typedef struct { float x,y,u,v,opacity,threshold,softness; } particle_mask_vertex;
-typedef struct { GLuint texture; uint32_t first,count; } particle_mask_batch;
+typedef struct { GLuint texture; uint32_t first,count; float tint[4]; int nearest; } particle_mask_batch;
 static struct {
-  GLuint program,vao,vbo,sampler,texture;
-  GLint viewport_uniform,source_uniform,light_uniform;
+  GLuint program,vao,vbo,sampler,nearest_sampler,texture;
+  GLint viewport_uniform,source_uniform,light_uniform,tint_uniform;
+  float tint[4]; int nearest;
   particle_mask_vertex *vertices;
   particle_mask_batch batches[PARTICLE_MASK_MAX_BATCHES];
   uint32_t count,capacity,batch_count;
@@ -35,10 +36,11 @@ static int particle_mask_prepare(void) {
   GLuint fs=particle_mask_shader(GL_FRAGMENT_SHADER,
     "#version 300 es\nprecision highp float;"
     "in vec2 uv;in vec3 maskStyle;uniform vec2 viewportSize;"
-    "uniform sampler2D particleImage;uniform sampler2D darkness;out vec4 color;"
+    "uniform sampler2D particleImage;uniform sampler2D darkness;uniform vec4 tintColor;out vec4 color;"
     "void main(){float light=1.0-texture(darkness,gl_FragCoord.xy/viewportSize).a;"
     "float visibility=smoothstep(maskStyle.y,maskStyle.y+max(maskStyle.z,0.0001),light);"
-    "color=texture(particleImage,uv)*(maskStyle.x*visibility);}");
+    "vec4 texel=texture(particleImage,uv);"
+    "color=vec4(mix(texel.rgb,tintColor.rgb*texel.a,tintColor.a),texel.a)*(maskStyle.x*visibility);}");
   if(!vs||!fs){if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);particle_mask.failed=1;return 0;}
   GLuint program=glCreateProgram();glAttachShader(program,vs);glAttachShader(program,fs);glLinkProgram(program);
   glDeleteShader(vs);glDeleteShader(fs);
@@ -48,12 +50,18 @@ static int particle_mask_prepare(void) {
   particle_mask.viewport_uniform=glGetUniformLocation(program,"viewportSize");
   particle_mask.source_uniform=glGetUniformLocation(program,"particleImage");
   particle_mask.light_uniform=glGetUniformLocation(program,"darkness");
+  particle_mask.tint_uniform=glGetUniformLocation(program,"tintColor");
   glGenVertexArrays(1,&particle_mask.vao);glGenBuffers(1,&particle_mask.vbo);
   glGenSamplers(1,&particle_mask.sampler);
   glSamplerParameteri(particle_mask.sampler,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
   glSamplerParameteri(particle_mask.sampler,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
   glSamplerParameteri(particle_mask.sampler,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
   glSamplerParameteri(particle_mask.sampler,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+  glGenSamplers(1,&particle_mask.nearest_sampler);
+  glSamplerParameteri(particle_mask.nearest_sampler,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+  glSamplerParameteri(particle_mask.nearest_sampler,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+  glSamplerParameteri(particle_mask.nearest_sampler,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+  glSamplerParameteri(particle_mask.nearest_sampler,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
   return 1;
 }
 static void particle_mask_shutdown(void) {
@@ -61,6 +69,7 @@ static void particle_mask_shutdown(void) {
   if(particle_mask.vao)glDeleteVertexArrays(1,&particle_mask.vao);
   if(particle_mask.vbo)glDeleteBuffers(1,&particle_mask.vbo);
   if(particle_mask.sampler)glDeleteSamplers(1,&particle_mask.sampler);
+  if(particle_mask.nearest_sampler)glDeleteSamplers(1,&particle_mask.nearest_sampler);
   free(particle_mask.vertices);memset(&particle_mask,0,sizeof(particle_mask));
 }
 static void particle_mask_reset(void) {particle_mask.count=particle_mask.batch_count=0;particle_mask.active=0;}
@@ -69,13 +78,16 @@ static int particle_mask_begin(int texture_id,float threshold,float softness) {
   sg_gl_image_info info=sg_gl_query_image_info(state.textures[texture_id]);
   particle_mask.texture=info.tex[info.active_slot];
   particle_mask.threshold=threshold;particle_mask.softness=softness;
+  memset(particle_mask.tint,0,sizeof(particle_mask.tint));particle_mask.nearest=0;
   return particle_mask.texture!=0;
 }
 static void particle_mask_draw(int texture_id,int texture_width,int texture_height,
     float x,float y,float rotation,float size,float opacity) {
   (void)texture_id;
   if(!(opacity>0)||size==0||!isfinite(size)||particle_mask.count+6>PARTICLE_MASK_MAX_VERTICES)return;
-  int new_batch=!particle_mask.batch_count||particle_mask.batches[particle_mask.batch_count-1].texture!=particle_mask.texture;
+  particle_mask_batch *last=particle_mask.batch_count ? &particle_mask.batches[particle_mask.batch_count-1] : NULL;
+  int new_batch=!last||last->texture!=particle_mask.texture||last->nearest!=particle_mask.nearest||
+    memcmp(last->tint,particle_mask.tint,sizeof(particle_mask.tint));
   if(new_batch&&particle_mask.batch_count==PARTICLE_MASK_MAX_BATCHES)return;
   if(particle_mask.count+6>particle_mask.capacity){
     uint32_t capacity=particle_mask.capacity?particle_mask.capacity*2:1536;
@@ -83,7 +95,11 @@ static void particle_mask_draw(int texture_id,int texture_width,int texture_heig
     void *next=realloc(particle_mask.vertices,(size_t)capacity*sizeof(particle_mask_vertex));
     if(!next)return;particle_mask.vertices=next;particle_mask.capacity=capacity;
   }
-  if(new_batch)particle_mask.batches[particle_mask.batch_count++]=(particle_mask_batch){particle_mask.texture,particle_mask.count,0};
+  if(new_batch){
+    particle_mask_batch *batch=&particle_mask.batches[particle_mask.batch_count++];
+    *batch=(particle_mask_batch){.texture=particle_mask.texture,.first=particle_mask.count,.nearest=particle_mask.nearest};
+    memcpy(batch->tint,particle_mask.tint,sizeof(batch->tint));
+  }
   float sx=convert_local_x_to_screen(x),sy=convert_local_y_to_screen(y);
   float w=scale_local_to_screen(size),h=texture_width>0?w*(float)texture_height/texture_width:w;
   float cs=cosf(rotation),sn=sinf(rotation);
@@ -114,6 +130,8 @@ static void particle_mask_present(void) {
   glActiveTexture(GL_TEXTURE0);glBindSampler(0,particle_mask.sampler);
   for(uint32_t i=0;i<particle_mask.batch_count;i++){
     particle_mask_batch *batch=&particle_mask.batches[i];glBindTexture(GL_TEXTURE_2D,batch->texture);
+    glBindSampler(0,batch->nearest?particle_mask.nearest_sampler:particle_mask.sampler);
+    glUniform4fv(particle_mask.tint_uniform,1,batch->tint);
     glDrawArrays(GL_TRIANGLES,(GLint)batch->first,(GLsizei)batch->count);
   }
   glBindSampler(0,0);glBindSampler(1,0);glBindVertexArray(0);glBindBuffer(GL_ARRAY_BUFFER,0);

@@ -92,6 +92,10 @@ typedef struct {
     int sprite_layer; // Complete sprite batch preceding this model in Y order.
     int light_count; // -1: fixed preview light; 0..4: scene point lights
     float lights[4][9]; // relative x,height,z, inner/outer radius, RGB, intensity
+    // Draws are deferred; later models must not replace earlier material styles.
+    pixel_style_params_t pixel_style;
+    int pixel_enabled;
+    float ambient, steps;
 } ModelDraw;
 static ModelDraw draw_queue[MODEL_INSTANCES];
 static int draw_count;
@@ -109,7 +113,7 @@ static struct {
     sg_attachments pixel_attachments;
     sg_sampler pixel_sampler;
     pixel_style_params_t pixel_style;
-    int pixel_enabled;
+    int pixel_enabled, pixel_target_factor;
     sg_sampler sampler;
     sg_image white_image;
     sg_view white_view;
@@ -208,6 +212,8 @@ static int build_asset(ModelAsset *a,const void *bytes,size_t size,const char **
         cgltf_primitive *gp=&data->meshes[mi].primitives[pj]; ModelPrimitive *p=&a->primitives[pi];
         cgltf_accessor *pos=attribute(gp,cgltf_attribute_type_position,0),*normal=attribute(gp,cgltf_attribute_type_normal,0),*uv=attribute(gp,cgltf_attribute_type_texcoord,0),*color=attribute(gp,cgltf_attribute_type_color,0);
         if(gp->type!=cgltf_primitive_type_triangles || !pos || !gp->indices){*error="model requires indexed triangle POSITION data";goto fail;}
+        if(!pos->count || pos->count>262144 || gp->indices->count>786432 || gp->indices->count%3 ||
+           (!normal && gp->indices->count>262144)){*error="invalid or oversized model primitive";goto fail;}
         ModelVertex *verts=calloc(pos->count,sizeof(*verts)); uint32_t *indices=malloc(gp->indices->count*sizeof(*indices));
         if(!verts||!indices){free(verts);free(indices);*error="out of memory";goto fail;}
         p->min[0]=p->min[1]=p->min[2]=FLT_MAX;p->max[0]=p->max[1]=p->max[2]=-FLT_MAX;
@@ -218,8 +224,32 @@ static int build_asset(ModelAsset *a,const void *bytes,size_t size,const char **
             if(color)cgltf_accessor_read_float(color,v,verts[v].color,4);else verts[v].color[0]=verts[v].color[1]=verts[v].color[2]=verts[v].color[3]=1;
             for(int k=0;k<3;k++){if(verts[v].p[k]<p->min[k])p->min[k]=verts[v].p[k];if(verts[v].p[k]>p->max[k])p->max[k]=verts[v].p[k];}
         }
-        for(cgltf_size j=0;j<gp->indices->count;j++)indices[j]=(uint32_t)cgltf_accessor_read_index(gp->indices,j);
-        p->vertices=sg_make_buffer(&(sg_buffer_desc){.data={verts,pos->count*sizeof(*verts)},.label="model vertices"});
+        for(cgltf_size j=0;j<gp->indices->count;j++) {
+            cgltf_size index=cgltf_accessor_read_index(gp->indices,j);
+            if(index>=pos->count){free(verts);free(indices);*error="model index out of bounds";goto fail;}
+            indices[j]=(uint32_t)index;
+        }
+        cgltf_size vertex_count=pos->count;
+        if(!normal) {
+            // glTF specifies flat normals when NORMAL is absent. Split corners
+            // so adjacent faces cannot overwrite one another's lighting normal.
+            ModelVertex *flat=malloc(gp->indices->count*sizeof(*flat));
+            if(!flat){free(verts);free(indices);*error="out of memory";goto fail;}
+            for(cgltf_size j=0;j<gp->indices->count;j+=3) {
+                float *a=verts[indices[j]].p,*b=verts[indices[j+1]].p,*c=verts[indices[j+2]].p;
+                float u[3]={b[0]-a[0],b[1]-a[1],b[2]-a[2]},v[3]={c[0]-a[0],c[1]-a[1],c[2]-a[2]};
+                float n[3]={u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]};
+                float length=sqrtf(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);
+                if(length>1e-12f)for(int k=0;k<3;k++)n[k]/=length;
+                else {n[0]=n[2]=0;n[1]=1;}
+                for(int k=0;k<3;k++) {
+                    flat[j+k]=verts[indices[j+k]];
+                    memcpy(flat[j+k].n,n,sizeof(n));indices[j+k]=(uint32_t)(j+k);
+                }
+            }
+            free(verts);verts=flat;vertex_count=gp->indices->count;
+        }
+        p->vertices=sg_make_buffer(&(sg_buffer_desc){.data={verts,vertex_count*sizeof(*verts)},.label="model vertices"});
         p->indices=sg_make_buffer(&(sg_buffer_desc){.usage.index_buffer=true,.data={indices,gp->indices->count*sizeof(*indices)},.label="model indices"});
         p->index_count=(uint32_t)gp->indices->count; p->material=gp->material?(uint32_t)(gp->material-data->materials):0;
         free(verts);free(indices); if(!p->vertices.id||!p->indices.id){*error="could not create model buffers";goto fail;}
@@ -277,6 +307,7 @@ void models_update(double dt) {
 }
 
 static void resize_pixel_targets(int factor) {
+    models.pixel_target_factor=factor;
     if(models.pixel_color.id) {
         sg_destroy_view(models.pixel_color_view); sg_destroy_view(models.pixel_geometry_view);
         sg_destroy_view(models.pixel_attachments.colors[0]); sg_destroy_view(models.pixel_attachments.colors[1]); sg_destroy_view(models.pixel_attachments.depth_stencil);
@@ -377,7 +408,8 @@ JSValue js_models_draw(JSContext *ctx,JSValueConst t,int argc,JSValueConst *argv
     if(argc>6 && !JS_IsUndefined(argv[6]) && JS_ToFloat64(ctx,&pixel_size,argv[6]))return JS_EXCEPTION;
     if(!isfinite(x)||!isfinite(y)||!isfinite(height)||!isfinite(scale)||!isfinite(rotation)||!isfinite(pixel_size)||pixel_size<0)
         return JS_ThrowRangeError(ctx,"model draw values must be finite; pixel size must be nonnegative");
-    ModelDraw draw={.id=id,.x=x,.y=y,.height=height,.scale=scale,.rotation=rotation,.pixel_size=pixel_size,.light_count=-1};
+    ModelDraw draw={.id=id,.x=x,.y=y,.height=height,.scale=scale,.rotation=rotation,.pixel_size=pixel_size,.light_count=-1,
+        .pixel_style=models.pixel_style,.pixel_enabled=models.pixel_enabled,.ambient=models.ambient,.steps=models.steps};
     if(argc>7 && !JS_IsUndefined(argv[7]) && !JS_IsNull(argv[7])) {
         JSValue length=JS_GetPropertyStr(ctx,argv[7],"length"); uint32_t count=0;
         int error=JS_ToUint32(ctx,&count,length); JS_FreeValue(ctx,length);
@@ -405,7 +437,7 @@ static void render_model(ModelDraw draw, int pixel) {
     if(!models.instances[id-1].used)return;
     ModelInstance *in=&models.instances[id-1];ModelAsset *a=&models.assets[in->asset];
     float aspect=(float)sapp_width()/(float)sapp_height();hmm_mat4 projection=pixel?HMM_Orthographic(-MODEL_PIXEL_TARGET/2.0f,MODEL_PIXEL_TARGET/2.0f,-MODEL_PIXEL_TARGET/2.0f,MODEL_PIXEL_TARGET/2.0f,-128,128):HMM_Orthographic(-500*aspect,500*aspect,-500,500,-2000,2000);hmm_mat4 camera=mat_mul(HMM_Rotate(models.pitch,HMM_Vec3(1,0,0)),HMM_Rotate(models.yaw,HMM_Vec3(0,1,0)));float anchor_t[3]={(float)x,(float)-y+(float)height,0},identity_r[4]={0,0,0,1},unit_s[3]={1,1,1};hmm_mat4 anchor=trs(anchor_t,identity_r,unit_s);float local_t[3]={0,0,0},rr[4]={0,sinf((float)rotation*.5f),0,cosf((float)rotation*.5f)},ss[3]={(float)scale,(float)scale,(float)scale};hmm_mat4 root=trs(local_t,rr,ss);
-    for(uint32_t ni=0;ni<a->node_count;ni++){ModelNode *n=&a->nodes[ni];for(uint32_t j=0;j<n->primitive_count;j++){ModelPrimitive *p=&a->primitives[n->primitive_start+j];ModelMaterial *m=&a->materials[p->material<a->material_count?p->material:0];hmm_mat4 model=mat_mul(camera,mat_mul(root,in->world[ni]));hmm_mat4 mvp=mat_mul(projection,mat_mul(anchor,model));model_vs_params_t vs={.mvp=mvp,.model=model};model_fs_params_t fs={{m->factor[0],m->factor[1],m->factor[2],m->factor[3]},{models.light_dir[0],models.light_dir[1],models.light_dir[2],models.steps},{models.ambient,m->alpha==MODEL_ALPHA_MASK?(float)1:0,m->cutoff,m->uv_rotation},{m->uv_offset[0],m->uv_offset[1],m->uv_scale[0],m->uv_scale[1]}};
+    for(uint32_t ni=0;ni<a->node_count;ni++){ModelNode *n=&a->nodes[ni];for(uint32_t j=0;j<n->primitive_count;j++){ModelPrimitive *p=&a->primitives[n->primitive_start+j];ModelMaterial *m=&a->materials[p->material<a->material_count?p->material:0];hmm_mat4 model=mat_mul(camera,mat_mul(root,in->world[ni]));hmm_mat4 mvp=mat_mul(projection,mat_mul(anchor,model));model_vs_params_t vs={.mvp=mvp,.model=model};model_fs_params_t fs={{m->factor[0],m->factor[1],m->factor[2],m->factor[3]},{models.light_dir[0],models.light_dir[1],models.light_dir[2],draw.steps},{draw.ambient,m->alpha==MODEL_ALPHA_MASK?(float)1:0,m->cutoff,m->uv_rotation},{m->uv_offset[0],m->uv_offset[1],m->uv_scale[0],m->uv_scale[1]}};
         fs.point_params[0]=(float)draw.light_count;
         for(int light=0;light<draw.light_count;light++) {
             float *l=draw.lights[light];
@@ -447,7 +479,7 @@ void models_render(void) {
             sgl_draw_layer(draw.sprite_layer);
             sg_end_pass();
         }
-        if(!models.pixel_enabled || draw.pixel_size==0) {
+        if(!draw.pixel_enabled || draw.pixel_size==0) {
             begin_model_composite();
             render_model(draw,0);
             sg_end_pass();
@@ -460,6 +492,8 @@ void models_render(void) {
         int left=(int)round(sapp_width()*0.5+draw.x*sapp_height()/1000.0-extent*0.5);
         int top=(int)round(sapp_height()*0.5+draw.y*sapp_height()/1000.0-extent*0.5);
         if(left>=sapp_width()||top>=sapp_height()||left+extent<=0||top+extent<=0)continue;
+        int factor=draw.pixel_style.options[0]>1.0f?2:1;
+        if(models.pixel_target_factor!=factor)resize_pixel_targets(factor);
         sg_begin_pass(&(sg_pass){.attachments=models.pixel_attachments,.action={
             .colors[0]={.load_action=SG_LOADACTION_CLEAR,.store_action=SG_STOREACTION_STORE,.clear_value={0,0,0,0}},
             .colors[1]={.load_action=SG_LOADACTION_CLEAR,.store_action=SG_STOREACTION_STORE,.clear_value={0,0,0,0}},
@@ -480,7 +514,7 @@ void models_render(void) {
         bindings.views[VIEW_model_color]=models.pixel_color_view;
         bindings.samplers[SMP_pixel_sampler]=models.pixel_sampler;
         sg_apply_bindings(&bindings);
-        sg_apply_uniforms(UB_pixel_style_params,&SG_RANGE(models.pixel_style));
+        sg_apply_uniforms(UB_pixel_style_params,&SG_RANGE(draw.pixel_style));
         sg_draw(0,3,1);
         sg_end_pass();
     }

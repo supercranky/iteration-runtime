@@ -38,6 +38,9 @@
 #include "cutils.h"
 #include "runtime.h"
 #include "soloud/soloud_c.h"
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #include "nanovg/nanovg.h"
 
@@ -1555,6 +1558,62 @@ void engine_draw_texture_clip(double source_x, double source_y, double source_wi
 
 #include "engines/particle_mask.h"
 
+// Queue an atlas sprite through the same per-fragment direct-light mask as
+// particles. This is a world-effect pass, after world sprites/lighting and before UI.
+static JSValue js_engine_draw_light_masked_sprite(JSContext *ctx, JSValueConst this_val,
+                                                 int argc, JSValueConst *argv)
+{
+  if (argc < 8) return JS_ThrowTypeError(ctx, "drawLightMaskedSprite requires texture, source rect, position and scale");
+  int texture;
+  if (JS_ToInt32(ctx, &texture, argv[0]) < 0) return JS_EXCEPTION;
+  if (texture < 0 || texture >= state.loaded_textures)
+    return JS_ThrowRangeError(ctx, "Invalid masked sprite texture");
+  double v[10] = {0,0,0,0,0,0,1,1,0.45,0.15};
+  for (int i=0;i<7;i++) if (JS_ToFloat64(ctx,&v[i],argv[i+1])<0) return JS_EXCEPTION;
+  const int optional[3]={8,12,13};
+  for (int i=0;i<3;i++) if (argc>optional[i] && !JS_IsUndefined(argv[optional[i]]) &&
+      JS_ToFloat64(ctx,&v[7+i],argv[optional[i]])<0) return JS_EXCEPTION;
+  for (int i=0;i<10;i++) if (!isfinite(v[i])) return JS_ThrowRangeError(ctx,"Masked sprite values must be finite");
+  image_sizes dimensions=state.texture_sizes[texture];
+  if (v[0]<0 || v[1]<0 || v[2]<=0 || v[3]<=0 ||
+      v[0]+v[2]>dimensions.widthSource || v[1]+v[3]>dimensions.heightSource ||
+      v[6]<0 || v[7]<0 || v[7]>1 || v[8]<0 || v[8]>1 || v[9]<0 || v[9]>1)
+    return JS_ThrowRangeError(ctx,"Invalid masked sprite rectangle, scale, opacity or mask");
+  int flip=argc>9 ? JS_ToBool(ctx,argv[9]) : 0;
+  int nearest=argc>10 ? JS_ToBool(ctx,argv[10]) : 0;
+  float tint[4]={1,1,1,0};
+  if (argc>11 && !JS_IsNull(argv[11]) && !JS_IsUndefined(argv[11])) {
+    if (!JS_IsObject(argv[11])) return JS_ThrowTypeError(ctx,"tint must be {r,g,b,amount}");
+    const char *keys[4]={"r","g","b","amount"};
+    for(int i=0;i<4;i++) {
+      JSValue value=JS_GetPropertyStr(ctx,argv[11],keys[i]);
+      if (JS_IsException(value)) return JS_EXCEPTION;
+      if (JS_IsUndefined(value)) {JS_FreeValue(ctx,value);continue;}
+      double n;int result=JS_ToFloat64(ctx,&n,value);JS_FreeValue(ctx,value);
+      if(result<0)return JS_EXCEPTION;
+      if(!isfinite(n)||n<0||n>1)return JS_ThrowRangeError(ctx,"Invalid masked sprite tint");
+      tint[i]=(float)n;
+    }
+  }
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  if (v[6]==0 || v[7]==0 || !particle_mask_begin(texture,(float)v[8],(float)v[9])) return JS_FALSE;
+  particle_mask.nearest=nearest;memcpy(particle_mask.tint,tint,sizeof(tint));
+  uint32_t first=particle_mask.count;
+  particle_mask_draw(texture,(float)v[2],(float)v[3],(float)v[4],(float)v[5],0,(float)(v[2]*v[6]),(float)v[7]);
+  if(particle_mask.count!=first+6)return JS_FALSE;
+  for(uint32_t i=first;i<particle_mask.count;i++) {
+    particle_mask_vertex *vertex=&particle_mask.vertices[i];
+    vertex->u=(float)((v[0]+(flip?1-vertex->u:vertex->u)*v[2])/dimensions.widthTexture);
+    vertex->v=(float)((v[1]+vertex->v*v[3])/dimensions.heightTexture);
+    if(!state.sprite_pixel_snapping_disabled){vertex->x=roundf(vertex->x);vertex->y=roundf(vertex->y);}
+  }
+  if(gpu_profile.sampling)gpu_profile.work[0]++;
+  return JS_TRUE;
+#else
+  return JS_FALSE;
+#endif
+}
+
 static void engine_draw_particle(int phase, int texture_id, int texture_width, int texture_height,
                                  float x, float y, float rotation, float size, float opacity,
                                  int mask_direct_light, float mask_threshold, float mask_softness)
@@ -2114,28 +2173,54 @@ static JSValue js_engine_flush_rendering(JSContext *ctx, JSValueConst this_val,
 static JSValue js_engine_play_sound(JSContext *ctx, JSValueConst this_val,
                                     int argc, JSValueConst *argv)
 {
-  JSValueConst sound, volume, pitch;
+  int sound;
+  double volume=1, pitch=1;
+  if (argc<1) return JS_ThrowTypeError(ctx,"playSound requires a sound ID");
+  if (JS_ToInt32(ctx,&sound,argv[0])<0) return JS_EXCEPTION;
+  if (argc>1 && !JS_IsUndefined(argv[1]) && JS_ToFloat64(ctx,&volume,argv[1])<0) return JS_EXCEPTION;
+  if (argc>2 && !JS_IsUndefined(argv[2]) && JS_ToFloat64(ctx,&pitch,argv[2])<0) return JS_EXCEPTION;
+  if (!state.soloud || sound<0 || sound>=state.loaded_sounds || !state.sounds[sound])
+    return JS_ThrowRangeError(ctx,"Invalid sound ID");
+  if (!isfinite(volume)||volume<0||volume>1||!isfinite(pitch)||pitch<=0)
+    return JS_ThrowRangeError(ctx,"Invalid sound volume or pitch");
+  int loop=argc>3 ? JS_ToBool(ctx,argv[3]) : 0;
+  unsigned int voice=Soloud_playEx(state.soloud,state.sounds[sound],(float)volume,0,1,0);
+  Soloud_setRelativePlaySpeed(state.soloud,voice,(float)pitch);
+  Soloud_setLooping(state.soloud,voice,loop);
+  Soloud_setPause(state.soloud,voice,0);
+  return JS_NewUint32(ctx,voice);
+}
 
-  sound = argv[0];
-  volume = argv[1];
-  pitch = argv[2];
+static JSValue js_engine_stop_sound(JSContext *ctx, JSValueConst this_val,
+                                    int argc, JSValueConst *argv)
+{
+  uint32_t voice;
+  if (argc<1) return JS_ThrowTypeError(ctx,"stopSound requires a voice handle");
+  if (JS_ToUint32(ctx,&voice,argv[0])<0) return JS_EXCEPTION;
+  int playing=state.soloud && Soloud_isValidVoiceHandle(state.soloud,voice);
+  if (playing) Soloud_stop(state.soloud,voice);
+  return JS_NewBool(ctx,playing);
+}
 
-  int sound_real;
-  double volume_real;
-  double pitch_real;
-
-  JS_ToInt32(ctx, &sound_real, sound);
-  JS_ToFloat64(ctx, &volume_real, volume);
-  JS_ToFloat64(ctx, &pitch_real, pitch);
-
-  SOKOL_LOG("trying to play sound");
-
-  int sound_handle = Soloud_play(state.soloud, state.sounds[sound_real]);
-
-  Soloud_setVolume(state.soloud, sound_handle, volume_real);
-  Soloud_setRelativePlaySpeed(state.soloud, sound_handle, pitch_real);
-
-  return JS_UNDEFINED;
+static JSValue js_engine_fade_out_sound(JSContext *ctx, JSValueConst this_val,
+                                       int argc, JSValueConst *argv)
+{
+  uint32_t voice;
+  double seconds=0.5;
+  if (argc<1) return JS_ThrowTypeError(ctx,"fadeOutSound requires a voice handle");
+  if (JS_ToUint32(ctx,&voice,argv[0])<0) return JS_EXCEPTION;
+  if (argc>1 && !JS_IsUndefined(argv[1]) && JS_ToFloat64(ctx,&seconds,argv[1])<0) return JS_EXCEPTION;
+  if (!isfinite(seconds)||seconds<0||seconds>3600)
+    return JS_ThrowRangeError(ctx,"Sound fade duration must be between 0 and 3600 seconds");
+  int playing=state.soloud && Soloud_isValidVoiceHandle(state.soloud,voice);
+  if (playing) {
+    if (seconds==0) Soloud_stop(state.soloud,voice);
+    else {
+      Soloud_fadeVolume(state.soloud,voice,0,seconds);
+      Soloud_scheduleStop(state.soloud,voice,seconds);
+    }
+  }
+  return JS_NewBool(ctx,playing);
 }
 
 static void fetch_engine_load_text_callback(const sfetch_response_t *response)
@@ -2338,9 +2423,11 @@ static void fetch_engine_load_sound_callback(const sfetch_response_t *response)
     JS_SetPropertyStr(state.ctx, sound, "id", id);
     JS_SetPropertyStr(state.ctx, sound, "name", name);
 
-    JS_Call(state.ctx, callback->callback, JS_UNDEFINED, 1, (JSValueConst *)&sound);
-
+    // The callback may immediately play this sound; register it first.
     state.loaded_sounds++;
+    JSValue call_result = JS_Call(state.ctx, callback->callback, JS_UNDEFINED, 1, (JSValueConst *)&sound);
+    JS_FreeValue(state.ctx, call_result);
+    JS_FreeValue(state.ctx, sound);
   }
   else if (response->failed)
   {
@@ -2400,6 +2487,36 @@ static void fetch_engine_load_font_callback(const sfetch_response_t *response)
 #include "engines/coverage_triangles.h"
 #include "engines/screen_overlay.h"
 #include "engines/plugin_paths.h"
+
+static JSValue js_light_layer_resolution(JSContext *ctx, JSValueConst self,
+                                          int argc, JSValueConst *argv)
+{
+  (void)self;
+  double scale;
+  if (argc < 1) return JS_ThrowTypeError(ctx, "light layer resolution requires a scale");
+  if (JS_ToFloat64(ctx, &scale, argv[0]) < 0) return JS_EXCEPTION;
+  if (!(scale == 1.0 || scale == 0.5 || scale == 0.25))
+    return JS_ThrowRangeError(ctx, "light layer resolution must be 1, 0.5 or 0.25");
+  return JS_NewBool(ctx, min_layers_set_resolution((float)scale));
+}
+
+static JSValue js_light_layer_bounds(JSContext *ctx, JSValueConst self,
+                                     int argc, JSValueConst *argv)
+{
+  (void)self;
+  if (!argc) return JS_NewBool(ctx,min_layers_set_bounds(NULL));
+  if (argc != 4) return JS_ThrowTypeError(ctx,"light layer bounds require left, top, right, bottom");
+  double input[4];
+  for (int i=0;i<4;i++) {
+    if (JS_ToFloat64(ctx,&input[i],argv[i])<0) return JS_EXCEPTION;
+    if (!isfinite(input[i])) return JS_ThrowRangeError(ctx,"light layer bounds must be finite");
+  }
+  if (input[0]>input[2] || input[1]>input[3]) return JS_ThrowRangeError(ctx,"invalid light layer bounds");
+  float bounds[4]={convert_local_x_to_screen(input[0]),convert_local_y_to_screen(input[1]),
+    convert_local_x_to_screen(input[2]),convert_local_y_to_screen(input[3])};
+  for (int i=0;i<4;i++) if (!isfinite(bounds[i])) return JS_ThrowRangeError(ctx,"light layer bounds overflow");
+  return JS_NewBool(ctx,min_layers_set_bounds(bounds));
+}
 
 static int engine_execute_plugin_render_commands_inner(const uint8_t *bytes, size_t size)
 {
@@ -2605,6 +2722,8 @@ static JSValue js_engine_set_sprite_layer(JSContext *ctx,JSValueConst self,int a
 }
 
 static const JSCFunctionListEntry js_my_module_funcs[] = {
+    JS_CFUNC_DEF("setLightLayerResolution", 1, js_light_layer_resolution),
+    JS_CFUNC_DEF("setLightLayerBounds", 4, js_light_layer_bounds),
     JS_CFUNC_DEF("prepareScreenOverlay", 0, js_screen_overlay_prepare),
     JS_CFUNC_DEF("setScreenOverlay", 6, js_screen_overlay_set),
     JS_CFUNC_DEF("setScreenOverlayFrame", 1, js_screen_overlay_frame),
@@ -2630,6 +2749,7 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("setClearColor", 4, js_engine_set_clear_color),
 
     JS_CFUNC_DEF("drawTextureClip", 11, js_engine_draw_texture_clip),
+    JS_CFUNC_DEF("drawLightMaskedSprite", 8, js_engine_draw_light_masked_sprite),
 
     JS_CFUNC_DEF("now", 0, js_engine_now),
     JS_CFUNC_DEF("frameNow", 0, js_engine_frame_now),
@@ -2696,6 +2816,8 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
 
     JS_CFUNC_DEF("loadSound", 2, js_engine_load_sound),
     JS_CFUNC_DEF("playSound", 3, js_engine_play_sound),
+    JS_CFUNC_DEF("stopSound", 1, js_engine_stop_sound),
+    JS_CFUNC_DEF("fadeOutSound", 2, js_engine_fade_out_sound),
 
     JS_CFUNC_DEF("loadFont", 2, js_engine_load_font),
 
@@ -2839,15 +2961,15 @@ void engine_frame()
   gpu_profile_frame_begin();
   models_update(sapp_frame_duration());
 
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  particle_mask_reset();
+#endif
   if (JS_IsFunction(state.ctx, engine_get_frame_callback()))
   {
     JS_Call(state.ctx, engine_get_frame_callback(), JS_UNDEFINED, 0, NULL);
   }
 
   particle_system_update_all((float)sapp_frame_duration());
-#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-  particle_mask_reset();
-#endif
   float particle_left=get_translated_x(-500),particle_right=get_translated_x(500);
   float particle_top=get_translated_y(-500),particle_bottom=get_translated_y(500);
   float particle_pad_x=2*fabsf(particle_right-particle_left)/fmaxf(1,sapp_width());
@@ -2926,8 +3048,14 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
   screen_world_vg = vg;
 
   Soloud *soloud = Soloud_create();
+  unsigned int audio_buffer_frames = SOLOUD_AUTO;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+  // CoreAudio's default is two 2048-frame buffers. Give iOS twice the
+  // scheduling headroom during rendering spikes, at the cost of audio latency.
+  audio_buffer_frames = 4096;
+#endif
   Soloud_initEx(soloud, SOLOUD_CLIP_ROUNDOFF | SOLOUD_ENABLE_VISUALIZATION,
-                SOLOUD_AUTO, SOLOUD_AUTO, SOLOUD_AUTO, 2);
+                SOLOUD_AUTO, SOLOUD_AUTO, audio_buffer_frames, 2);
 
   Soloud_setGlobalVolume(soloud, 4);
 

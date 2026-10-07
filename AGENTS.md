@@ -80,6 +80,39 @@ backup recovery and shutdown cleanup intact. Game schemas and migrations belong
 to the consuming app. Run `python3 tests/storage-files.py` and the consuming
 app's browser storage tests after changes. Windows storage rejects explicitly.
 
+## Audio voices
+
+`Runtime.playSound(soundId, volume = 1, pitch = 1, loop = false)` returns a SoLoud
+voice handle. `Runtime.stopSound(handle)` stops that voice, returning whether it
+was valid. `Runtime.fadeOutSound(handle, seconds = 0.5)` uses SoLoud's volume
+fader and scheduled stop, not JS timers. Zero stops immediately; durations must be
+finite and in [0, 3600]. Never let frame-level cleanup cancel an in-progress fade;
+VM teardown still stops all voices. Register loaded sounds before invoking their callbacks, so playback
+from the callback passes ID validation. VM teardown stops all voices before
+freeing sounds; never persist native handles. The pinned SoLoud Wav decoder
+supports WAV/Vorbis, not MP3: applications must convert unsupported sources at
+build time. Ner's `verify-title-music.mjs` exercises decoded audio and native voice
+lifecycle in Chromium/WebKit; audible iPhone output needs device verification.
+
+iOS requests 4096-frame CoreAudio buffers (two queued buffers), versus the backend's
+2048-frame default, to trial additional scheduling headroom for reported music
+stutter. Other platforms retain automatic sizing. This increases output latency;
+no underrun trace or on-device stutter improvement has yet been established.
+
+## Per-model styles and missing normals
+
+`models/models.c` snapshots palette, pixel-mode flags and ambient/steps per queued
+model draw. Do not read those settings from final frame-global state at render
+time: interleaved chest/bone instances need independent palettes. Match the shared
+pixel-target AA factor to each draw before rendering. Ner `Models.create` supports
+optional `palette` and `lighting` overrides, then restores global defaults.
+
+For GLBs without NORMAL, generate flat triangle normals by splitting indexed
+corners; keep explicit normals untouched. Bound primitive allocations, validate
+indices before dereferencing and free temporary arrays on failures. Verify with
+Ner's `verify-bone-palette.mjs` (Chromium/WebKit), `verify-model-pixels.mjs` and a
+full-game smoke check. These native features require an iPhone rebuild.
+
 ## Particle rendering
 
 `engines/particle_mask.h` batches direct-light masked quads and samples the lighting
@@ -88,6 +121,12 @@ It flushes after the main NanoVG frame and before reserved UI sprites. Preserve
 premultiplied alpha, physical framebuffer coordinates and GL/Sokol state cleanup.
 Native culling is render-only: zero-scale local systems skip traversal, and other
 systems open a batch lazily only for visible particles. Simulation stays active.
+`Runtime.drawLightMaskedSprite` also submits centered atlas quads to this pass,
+with per-batch filtering/tint and per-quad UVs/opacity/mask response. Reset the queue
+before the JS frame callback, not before native particle traversal, or JS-submitted
+sprites disappear. Preserve mirroring, premultiplied tint, pixel snapping, bounded
+batches and nearest/linear sampler cleanup. Ner's `verify-ghost-mask.mjs` checks
+light/shadow visibility, atlas rendering, tint, mirroring and Retina resizing.
 Run `tests/particle-culling.c` linked with `sapp/particles/particle_system.c`, the
 existing `iteration-sapp/tests/particle_system_test.c`, and the consuming Ner's
 `node scripts/verify-particle-mask.mjs` (also `--webkit`) after changes.
@@ -141,6 +180,47 @@ must sample alpha only. Keep stencil initialization and GL state restoration for
 both first and subsequent layers. Ner's `verify-light-layer-first.mjs` compares
 old/new runtime pixels, including colored, unbounded and multi-layer masks;
 `docs/light-layer-first.md` records the qualified desktop benchmark results.
+
+## Reduced-resolution minimum-alpha layers
+
+`Runtime.setLightLayerResolution(1 | 0.5 | 0.25)` selects the linear size of both
+lighting targets, lazily at the next group. Full remains the default; shutdown
+resets it. Keep plugin/NanoVG coordinates full-frame, scale coverage scissors to
+actual target dimensions and preserve full-frame mask UVs for particles. Only
+lighting rasterization changes; world/UI/particle framebuffers must remain native
+resolution. A reduced-target MSAA/subpixel-coverage trial was rolled back after
+a reported production black screen despite passing local browser tests. Keep the
+single-sample framebuffer path until that failure is diagnosed on the affected
+device. Reduced modes now rasterize layers into a reusable full-resolution scratch
+framebuffer and box-filter 2×2/4×4 samples straight into the reduced accumulator
+using an ordinary MIN-blended shader (no MSAA/blits or extra reduced scratch pass). Keep Full unchanged and coverage scissors tied
+to the actual raster target. Release scratch on resize/Full/shutdown; shader failure
+falls back to the old coarse path. Include the extra raster/downsample cost in
+profiling and do not describe Quarter as reduced-resolution shadow rasterization.
+Reduced analytic coverage has an optional four-subpixel fallback shader;
+Full keeps the original shader and optional compile/link failure falls back to
+it (cache failure, clean up both programs on shutdown). Ner's
+`RESAMPLE_FAILURE=1 FILTER_FAILURE=1 node scripts/verify-light-resolution.mjs`
+exercises both shader fallbacks.
+No plugin ABI change is required. The setter rejects invalid scales
+and returns false on unsupported backends or during an active group. Run Ner's
+`verify-light-resolution.mjs`, `verify-light-resolution-game.mjs`, reduced-scale
+particle/scissor tests and full-resolution pixel-reference comparisons in both
+browser engines. Reduced pixels are intentionally not parity-equivalent; do not
+claim a phone speedup from pixel-count reductions alone.
+
+## Conservative layer bounds and transient attachments
+
+`Runtime.setLightLayerBounds(left, top, right, bottom)` supplies a logical-screen
+influence hint; no arguments clears it. The caller must guarantee that regions
+outside it cannot lower accumulator alpha. First-layer rendering stays full-frame;
+subsequent composition scissors include a two-output-pixel guard band. Geometry
+rasterization and full clears remain unchanged. Always restore the prior scissor
+rectangle before Sokol cache reset. Attachment invalidation is restricted to old
+contents before clear and dead stencil after rasterization; never invalidate the
+accumulator color consumed by particles/presentation. Verify pixel-reference
+comparisons at Full/Quarter, colored/unbounded masks, particle masks and deferred
+sprite scissor state in Chromium and WebKit after changing this path.
 
 ## Optional binary screen overlay
 

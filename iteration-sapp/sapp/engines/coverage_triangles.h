@@ -2,10 +2,11 @@
  * application plugins. Fixed scratch storage, one bounded upload per command. */
 #include "../plugins/coverage_validation.h"
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-static struct { GLuint program, vao, buffer; } coverage_gpu;
+static struct { GLuint program, filtered_program, vao, buffer; int filtered_failed; } coverage_gpu;
 static iteration_coverage_vertex coverage_scratch[ITER_COVERAGE_MAX_VERTICES];
 static void coverage_shutdown(void) {
   if(coverage_gpu.program)glDeleteProgram(coverage_gpu.program);
+  if(coverage_gpu.filtered_program)glDeleteProgram(coverage_gpu.filtered_program);
   if(coverage_gpu.vao)glDeleteVertexArrays(1,&coverage_gpu.vao);
   if(coverage_gpu.buffer)glDeleteBuffers(1,&coverage_gpu.buffer);
   memset(&coverage_gpu,0,sizeof(coverage_gpu));
@@ -33,6 +34,36 @@ static int coverage_prepare(void) {
   if(!coverage_gpu.vao||!coverage_gpu.buffer){coverage_shutdown();return 0;}
   return 1;
 }
+/* Optional filtering is isolated from the original shader. A driver that
+ * cannot compile/link it falls back to working coverage, never a black scene.
+ * No multisample framebuffer or resolve path is required. */
+static GLuint coverage_filtered_prepare(void) {
+  if(coverage_gpu.filtered_program || coverage_gpu.filtered_failed)return coverage_gpu.filtered_program;
+  coverage_gpu.filtered_failed=1;
+  GLuint vs=min_layer_shader(GL_VERTEX_SHADER,
+    "#version 300 es\nlayout(location=0)in vec2 position;layout(location=1)in vec3 a;"
+    "layout(location=2)in vec3 b;layout(location=3)in float opacity;"
+    "out vec3 va;out vec3 vb;out float alpha;void main(){"
+    "gl_Position=vec4(position,0,1);va=a;vb=b;alpha=opacity;}");
+  GLuint fs=min_layer_shader(GL_FRAGMENT_SHADER,
+    "#version 300 es\nprecision highp float;in vec3 va;in vec3 vb;in float alpha;out vec4 color;"
+    "float cdf(vec3 v){float s=v.x*inversesqrt(max(dot(v.yz,v.yz),1e-10));"
+    "if(s<=-1.)return 0.;if(s>=1.)return 1.;"
+    "return .5+(asin(s)+s*sqrt(max(0.,1.-s*s)))/3.141592653589793;}"
+    "float coverage(vec3 a,vec3 b){return clamp(cdf(a)+cdf(b)-1.,0.,1.);}"
+    "void main(){vec3 ax=dFdx(va)*.25,ay=dFdy(va)*.25,bx=dFdx(vb)*.25,by=dFdy(vb)*.25;"
+    "float c=(coverage(va-ax-ay,vb-bx-by)+coverage(va+ax-ay,vb+bx-by)"
+    "+coverage(va-ax+ay,vb-bx+by)+coverage(va+ax+ay,vb+bx+by))*.25;"
+    "color=vec4(0,0,0,c*alpha);}");
+  if(!vs||!fs){if(vs)glDeleteShader(vs);if(fs)glDeleteShader(fs);return 0;}
+  GLuint program=glCreateProgram();
+  glAttachShader(program,vs);glAttachShader(program,fs);glLinkProgram(program);
+  glDeleteShader(vs);glDeleteShader(fs);
+  GLint ok=0;glGetProgramiv(program,GL_LINK_STATUS,&ok);
+  if(!ok){glDeleteProgram(program);return 0;}
+  coverage_gpu.filtered_program=program;coverage_gpu.filtered_failed=0;
+  return program;
+}
 static int coverage_draw(const uint8_t *bytes, size_t size, float w, float h) {
   iteration_coverage_command c;
   if(!min_layers_coverage_allowed()||!iteration_validate_coverage(bytes,size,&c)||w<=0||h<=0)return 0;
@@ -46,10 +77,15 @@ static int coverage_draw(const uint8_t *bytes, size_t size, float w, float h) {
     if(!isfinite(v[0])||!isfinite(v[1]))return 0;
     memcpy(&coverage_scratch[i],v,sizeof(v));
   }
-  int left=(int)floorf(fmaxf(0,fminf(w,fminf(x0,x1))));
-  int right=(int)ceilf(fmaxf(0,fminf(w,fmaxf(x0,x1))));
-  int top=(int)floorf(fmaxf(0,fminf(h,fminf(y0,y1))));
-  int bottom=(int)ceilf(fmaxf(0,fminf(h,fmaxf(y0,y1))));
+  /* Commands and vertices stay in full framebuffer coordinates. Scissors,
+     unlike NDC, must be mapped to the actual reduced lighting target. */
+  const int raster_width=min_layers.fine ? min_layers.fine_width : min_layers.width;
+  const int raster_height=min_layers.fine ? min_layers.fine_height : min_layers.height;
+  const float sx=(float)raster_width/w,sy=(float)raster_height/h;
+  int left=(int)floorf(fmaxf(0,fminf(w,fminf(x0,x1)))*sx);
+  int right=(int)ceilf(fmaxf(0,fminf(w,fmaxf(x0,x1)))*sx);
+  int top=(int)floorf(fmaxf(0,fminf(h,fminf(y0,y1)))*sy);
+  int bottom=(int)ceilf(fmaxf(0,fminf(h,fmaxf(y0,y1)))*sy);
   if(left>=right||top>=bottom)return 1;
   if(!coverage_prepare())return 0;
   GLint previous_scissor[4];glGetIntegerv(GL_SCISSOR_BOX,previous_scissor);
@@ -57,8 +93,10 @@ static int coverage_draw(const uint8_t *bytes, size_t size, float w, float h) {
   glBufferData(GL_ARRAY_BUFFER,c.count*sizeof(iteration_coverage_vertex),coverage_scratch,GL_STREAM_DRAW);
   const GLint sizes[4]={2,3,3,1};const size_t offsets[4]={0,2*sizeof(float),5*sizeof(float),8*sizeof(float)};
   for(int i=0;i<4;i++){glEnableVertexAttribArray(i);glVertexAttribPointer(i,sizes[i],GL_FLOAT,GL_FALSE,sizeof(iteration_coverage_vertex),(const void*)offsets[i]);}
-  glUseProgram(coverage_gpu.program);glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_CULL_FACE);
-  glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glEnable(GL_SCISSOR_TEST);glScissor(left,(int)h-bottom,right-left,bottom-top);
+  GLuint program=min_layers_raster_scale()<1.0f ? coverage_filtered_prepare() : 0;
+  glUseProgram(program ? program : coverage_gpu.program);
+  glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisable(GL_CULL_FACE);
+  glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glEnable(GL_SCISSOR_TEST);glScissor(left,raster_height-bottom,right-left,bottom-top);
   if(c.blend==ITER_COVERAGE_MAX){glEnable(GL_BLEND);glBlendEquation(GL_MAX);glBlendFunc(GL_ONE,GL_ONE);}
   else glDisable(GL_BLEND);
   glDrawArrays(GL_TRIANGLES,0,(GLsizei)c.count);
