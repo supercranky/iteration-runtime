@@ -259,6 +259,106 @@
       },
       "rotated": false,
       "trimmed": false
+    },
+    "explosion-01.png": {
+      "frame": {
+        "x": 1,
+        "y": 101,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-02.png": {
+      "frame": {
+        "x": 355,
+        "y": 101,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-03.png": {
+      "frame": {
+        "x": 709,
+        "y": 101,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-04.png": {
+      "frame": {
+        "x": 1063,
+        "y": 101,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-05.png": {
+      "frame": {
+        "x": 1,
+        "y": 455,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-06.png": {
+      "frame": {
+        "x": 355,
+        "y": 455,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-07.png": {
+      "frame": {
+        "x": 709,
+        "y": 455,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-08.png": {
+      "frame": {
+        "x": 1063,
+        "y": 455,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-09.png": {
+      "frame": {
+        "x": 1,
+        "y": 809,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
+    },
+    "explosion-10.png": {
+      "frame": {
+        "x": 355,
+        "y": 809,
+        "w": 352,
+        "h": 352
+      },
+      "rotated": false,
+      "trimmed": false
     }
   },
   "meta": {

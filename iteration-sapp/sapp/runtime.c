@@ -3032,7 +3032,14 @@ static int js_engine_init(JSContext *ctx, JSModuleDef *m)
 #if defined(SOKOL_METAL)
   vg = nvgCreateMTL(sapp_metal_get_layer(), NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 #else
-  vg = nvgCreateGLES2(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
+  // NVG_DEBUG issues synchronous glGetError calls during every fill. In
+  // WebKit these cross the GPU-process boundary; keep them in Debug only.
+  // Shader compile/link validation remains enabled in NanoVG in all builds.
+  int nvg_flags = NVG_ANTIALIAS | NVG_STENCIL_STROKES;
+#ifndef NDEBUG
+  nvg_flags |= NVG_DEBUG;
+#endif
+  vg = nvgCreateGLES2(nvg_flags);
 #endif
   if (vg == NULL)
   {

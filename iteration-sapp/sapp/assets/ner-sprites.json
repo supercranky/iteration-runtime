@@ -960,7 +960,7 @@
         "h": 32
       }
     },
-    "pear.png": {
+    "bomb.png": {
       "frame": {
         "x": 69,
         "y": 205,
@@ -990,10 +990,40 @@
         "h": 32
       }
     },
-    "axe.png": {
+    "pear.png": {
       "frame": {
         "x": 103,
         "y": 103,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "axe.png": {
+      "frame": {
+        "x": 103,
+        "y": 137,
         "w": 32,
         "h": 32
       },
@@ -1023,7 +1053,7 @@
     "hit.png": {
       "frame": {
         "x": 103,
-        "y": 137,
+        "y": 171,
         "w": 32,
         "h": 32
       },
@@ -1053,36 +1083,6 @@
     "hero.png": {
       "frame": {
         "x": 103,
-        "y": 171,
-        "w": 32,
-        "h": 32
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      },
-      "sourceSize": {
-        "w": 32,
-        "h": 32
-      },
-      "pivot": {
-        "x": 16,
-        "y": 16
-      },
-      "9slicedFrame": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      }
-    },
-    "katana.png": {
-      "frame": {
-        "x": 103,
         "y": 205,
         "w": 32,
         "h": 32
@@ -1110,7 +1110,7 @@
         "h": 32
       }
     },
-    "silver-saber.png": {
+    "katana.png": {
       "frame": {
         "x": 137,
         "y": 103,
@@ -1140,7 +1140,7 @@
         "h": 32
       }
     },
-    "studded-leather-armor.png": {
+    "silver-saber.png": {
       "frame": {
         "x": 171,
         "y": 103,
@@ -1170,7 +1170,7 @@
         "h": 32
       }
     },
-    "child-2.png": {
+    "studded-leather-armor.png": {
       "frame": {
         "x": 205,
         "y": 103,
@@ -1200,7 +1200,7 @@
         "h": 32
       }
     },
-    "child-1.png": {
+    "child-2.png": {
       "frame": {
         "x": 137,
         "y": 137,
@@ -1230,7 +1230,7 @@
         "h": 32
       }
     },
-    "standard-wall.png": {
+    "child-1.png": {
       "frame": {
         "x": 137,
         "y": 171,
@@ -1260,10 +1260,40 @@
         "h": 32
       }
     },
-    "dirt.png": {
+    "standard-wall.png": {
       "frame": {
         "x": 137,
         "y": 205,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "dirt.png": {
+      "frame": {
+        "x": 171,
+        "y": 137,
         "w": 32,
         "h": 32
       },
@@ -1345,6 +1375,7 @@
     "2003": "umbrella.png",
     "2004": "equipped-sword.png",
     "2005": "dirt.png",
-    "2006": "ghost.png"
+    "2006": "ghost.png",
+    "2007": "bomb.png"
   }
 }

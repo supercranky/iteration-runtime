@@ -144,6 +144,11 @@ in Chromium and WebKit. Font appearance, layout and Retina scale must not change
 
 ## NanoVG fill batching
 
+Keep `NVG_DEBUG` behind `#ifndef NDEBUG`: its per-fill `glGetError` calls cause
+synchronous GPU-process stalls, particularly in Safari. Shader compile/link
+validation remains active in Release. Ner's `docs/safari-rendering.md` records
+foreground installed-browser A/B measurements and exact-pixel regression checks.
+
 The GL backend batches multi-path stencil fans and AA strips into indexed
 triangle lists, retaining primitive order/winding and original draws for
 single-path or oversized frames. `nanovg_indices.h` excludes index 0xffff
@@ -167,6 +172,9 @@ ASAN/UBSAN and Ner's penumbra, particles, additive, Retina and persistence brows
 tests after changes, including `verify-penumbra-sprite-state.mjs` for deferred
 terrain with multiple lights. Restore the scissor **rectangle**, not just its
 enable bit: `sg_reset_state_cache()` enables scissoring without resetting the box.
+Coverage reuses the scissor rectangle saved by `min_layers_begin()` rather than
+querying GL again: the fresh-layer guard ensures no intervening NanoVG commands,
+and every coverage batch restores that same box. Preserve this invariant.
 Restore blend equation/scissor/bindings and Sokol state;
 release GPU objects at shutdown. Unsupported backends reject this optional opcode.
 

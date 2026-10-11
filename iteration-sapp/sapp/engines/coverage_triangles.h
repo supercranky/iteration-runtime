@@ -88,7 +88,11 @@ static int coverage_draw(const uint8_t *bytes, size_t size, float w, float h) {
   int bottom=(int)ceilf(fmaxf(0,fminf(h,fmaxf(y0,y1)))*sy);
   if(left>=right||top>=bottom)return 1;
   if(!coverage_prepare())return 0;
-  GLint previous_scissor[4];glGetIntegerv(GL_SCISSOR_BOX,previous_scissor);
+  /* Coverage is accepted only at the start of a minimum-alpha layer, before
+   * any NanoVG commands. begin() saved this box and did not change it; each
+   * coverage draw restores it below. Reuse that authoritative saved state
+   * instead of another synchronous GPU-process query per triangle batch. */
+  const GLint *previous_scissor=min_layers.scissor;
   glBindVertexArray(coverage_gpu.vao);glBindBuffer(GL_ARRAY_BUFFER,coverage_gpu.buffer);
   glBufferData(GL_ARRAY_BUFFER,c.count*sizeof(iteration_coverage_vertex),coverage_scratch,GL_STREAM_DRAW);
   const GLint sizes[4]={2,3,3,1};const size_t offsets[4]={0,2*sizeof(float),5*sizeof(float),8*sizeof(float)};
