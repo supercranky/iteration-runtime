@@ -1,8 +1,38 @@
 {
   "frames": {
-    "two-handed-sword.png": {
+    "shopkeeper.png": {
       "frame": {
         "x": 1,
+        "y": 1,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "two-handed-sword.png": {
+      "frame": {
+        "x": 35,
         "y": 1,
         "w": 32,
         "h": 32
@@ -32,8 +62,38 @@
     },
     "baalzebub.png": {
       "frame": {
-        "x": 35,
+        "x": 69,
         "y": 1,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "skeleton.png": {
+      "frame": {
+        "x": 1,
+        "y": 35,
         "w": 32,
         "h": 32
       },
@@ -62,8 +122,38 @@
     },
     "ghost.png": {
       "frame": {
-        "x": 69,
-        "y": 1,
+        "x": 1,
+        "y": 69,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "skeleton-headless.png": {
+      "frame": {
+        "x": 35,
+        "y": 35,
         "w": 32,
         "h": 32
       },
@@ -92,8 +182,8 @@
     },
     "food-ration.png": {
       "frame": {
-        "x": 1,
-        "y": 35,
+        "x": 35,
+        "y": 69,
         "w": 32,
         "h": 32
       },
@@ -122,8 +212,8 @@
     },
     "map.png": {
       "frame": {
-        "x": 1,
-        "y": 69,
+        "x": 69,
+        "y": 35,
         "w": 32,
         "h": 32
       },
@@ -152,8 +242,8 @@
     },
     "apple.png": {
       "frame": {
-        "x": 35,
-        "y": 35,
+        "x": 69,
+        "y": 69,
         "w": 32,
         "h": 32
       },
@@ -182,8 +272,8 @@
     },
     "cream-pie.png": {
       "frame": {
-        "x": 35,
-        "y": 69,
+        "x": 103,
+        "y": 1,
         "w": 32,
         "h": 32
       },
@@ -212,7 +302,7 @@
     },
     "staircase-up.png": {
       "frame": {
-        "x": 69,
+        "x": 103,
         "y": 35,
         "w": 32,
         "h": 32
@@ -242,7 +332,7 @@
     },
     "banana.png": {
       "frame": {
-        "x": 69,
+        "x": 103,
         "y": 69,
         "w": 32,
         "h": 32
@@ -272,7 +362,7 @@
     },
     "giant-bat.png": {
       "frame": {
-        "x": 103,
+        "x": 137,
         "y": 1,
         "w": 32,
         "h": 32
@@ -302,8 +392,8 @@
     },
     "elven-dagger.png": {
       "frame": {
-        "x": 103,
-        "y": 35,
+        "x": 171,
+        "y": 1,
         "w": 32,
         "h": 32
       },
@@ -332,8 +422,8 @@
     },
     "dagger.png": {
       "frame": {
-        "x": 103,
-        "y": 69,
+        "x": 205,
+        "y": 1,
         "w": 32,
         "h": 32
       },
@@ -363,7 +453,7 @@
     "orcish-dagger.png": {
       "frame": {
         "x": 137,
-        "y": 1,
+        "y": 35,
         "w": 32,
         "h": 32
       },
@@ -392,8 +482,8 @@
     },
     "silver-dagger.png": {
       "frame": {
-        "x": 171,
-        "y": 1,
+        "x": 137,
+        "y": 69,
         "w": 32,
         "h": 32
       },
@@ -422,8 +512,8 @@
     },
     "short-sword.png": {
       "frame": {
-        "x": 205,
-        "y": 1,
+        "x": 171,
+        "y": 35,
         "w": 32,
         "h": 32
       },
@@ -452,7 +542,7 @@
     },
     "orange.png": {
       "frame": {
-        "x": 137,
+        "x": 205,
         "y": 35,
         "w": 32,
         "h": 32
@@ -482,7 +572,7 @@
     },
     "egg.png": {
       "frame": {
-        "x": 137,
+        "x": 171,
         "y": 69,
         "w": 32,
         "h": 32
@@ -512,8 +602,8 @@
     },
     "equipped-umbrella.png": {
       "frame": {
-        "x": 171,
-        "y": 35,
+        "x": 205,
+        "y": 69,
         "w": 32,
         "h": 32
       },
@@ -542,8 +632,8 @@
     },
     "umbrella.png": {
       "frame": {
-        "x": 205,
-        "y": 35,
+        "x": 1,
+        "y": 103,
         "w": 32,
         "h": 32
       },
@@ -572,8 +662,8 @@
     },
     "equipped-sword.png": {
       "frame": {
-        "x": 171,
-        "y": 69,
+        "x": 1,
+        "y": 137,
         "w": 32,
         "h": 32
       },
@@ -602,8 +692,8 @@
     },
     "plate-mail.png": {
       "frame": {
-        "x": 205,
-        "y": 69,
+        "x": 1,
+        "y": 171,
         "w": 32,
         "h": 32
       },
@@ -633,7 +723,7 @@
     "gold-piece.png": {
       "frame": {
         "x": 1,
-        "y": 103,
+        "y": 205,
         "w": 32,
         "h": 32
       },
@@ -662,8 +752,8 @@
     },
     "long-sword.png": {
       "frame": {
-        "x": 1,
-        "y": 137,
+        "x": 35,
+        "y": 103,
         "w": 32,
         "h": 32
       },
@@ -692,8 +782,8 @@
     },
     "carrot.png": {
       "frame": {
-        "x": 1,
-        "y": 171,
+        "x": 35,
+        "y": 137,
         "w": 32,
         "h": 32
       },
@@ -722,8 +812,8 @@
     },
     "chain-mail.png": {
       "frame": {
-        "x": 1,
-        "y": 205,
+        "x": 35,
+        "y": 171,
         "w": 32,
         "h": 32
       },
@@ -753,7 +843,7 @@
     "floor-1.png": {
       "frame": {
         "x": 35,
-        "y": 103,
+        "y": 205,
         "w": 32,
         "h": 32
       },
@@ -782,8 +872,8 @@
     },
     "broadsword.png": {
       "frame": {
-        "x": 35,
-        "y": 137,
+        "x": 69,
+        "y": 103,
         "w": 32,
         "h": 32
       },
@@ -812,8 +902,8 @@
     },
     "battle-axe.png": {
       "frame": {
-        "x": 35,
-        "y": 171,
+        "x": 69,
+        "y": 137,
         "w": 32,
         "h": 32
       },
@@ -842,8 +932,8 @@
     },
     "staircase-down.png": {
       "frame": {
-        "x": 35,
-        "y": 205,
+        "x": 69,
+        "y": 171,
         "w": 32,
         "h": 32
       },
@@ -873,7 +963,7 @@
     "leather-armor.png": {
       "frame": {
         "x": 69,
-        "y": 103,
+        "y": 205,
         "w": 32,
         "h": 32
       },
@@ -902,8 +992,8 @@
     },
     "brass-lantern.png": {
       "frame": {
-        "x": 69,
-        "y": 137,
+        "x": 103,
+        "y": 103,
         "w": 32,
         "h": 32
       },
@@ -932,8 +1022,8 @@
     },
     "grave.png": {
       "frame": {
-        "x": 69,
-        "y": 171,
+        "x": 103,
+        "y": 137,
         "w": 32,
         "h": 32
       },
@@ -962,8 +1052,8 @@
     },
     "bomb.png": {
       "frame": {
-        "x": 69,
-        "y": 205,
+        "x": 103,
+        "y": 171,
         "w": 32,
         "h": 32
       },
@@ -993,96 +1083,6 @@
     "pear.png": {
       "frame": {
         "x": 103,
-        "y": 103,
-        "w": 32,
-        "h": 32
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      },
-      "sourceSize": {
-        "w": 32,
-        "h": 32
-      },
-      "pivot": {
-        "x": 16,
-        "y": 16
-      },
-      "9slicedFrame": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      }
-    },
-    "axe.png": {
-      "frame": {
-        "x": 103,
-        "y": 137,
-        "w": 32,
-        "h": 32
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      },
-      "sourceSize": {
-        "w": 32,
-        "h": 32
-      },
-      "pivot": {
-        "x": 16,
-        "y": 16
-      },
-      "9slicedFrame": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      }
-    },
-    "hit.png": {
-      "frame": {
-        "x": 103,
-        "y": 171,
-        "w": 32,
-        "h": 32
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      },
-      "sourceSize": {
-        "w": 32,
-        "h": 32
-      },
-      "pivot": {
-        "x": 16,
-        "y": 16
-      },
-      "9slicedFrame": {
-        "x": 0,
-        "y": 0,
-        "w": 32,
-        "h": 32
-      }
-    },
-    "hero.png": {
-      "frame": {
-        "x": 103,
         "y": 205,
         "w": 32,
         "h": 32
@@ -1110,7 +1110,7 @@
         "h": 32
       }
     },
-    "katana.png": {
+    "axe.png": {
       "frame": {
         "x": 137,
         "y": 103,
@@ -1140,7 +1140,7 @@
         "h": 32
       }
     },
-    "silver-saber.png": {
+    "hit.png": {
       "frame": {
         "x": 171,
         "y": 103,
@@ -1170,7 +1170,7 @@
         "h": 32
       }
     },
-    "studded-leather-armor.png": {
+    "hero.png": {
       "frame": {
         "x": 205,
         "y": 103,
@@ -1200,7 +1200,7 @@
         "h": 32
       }
     },
-    "child-2.png": {
+    "katana.png": {
       "frame": {
         "x": 137,
         "y": 137,
@@ -1230,7 +1230,7 @@
         "h": 32
       }
     },
-    "child-1.png": {
+    "silver-saber.png": {
       "frame": {
         "x": 137,
         "y": 171,
@@ -1260,7 +1260,7 @@
         "h": 32
       }
     },
-    "standard-wall.png": {
+    "studded-leather-armor.png": {
       "frame": {
         "x": 137,
         "y": 205,
@@ -1290,10 +1290,100 @@
         "h": 32
       }
     },
-    "dirt.png": {
+    "child-2.png": {
       "frame": {
         "x": 171,
         "y": 137,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "child-1.png": {
+      "frame": {
+        "x": 205,
+        "y": 137,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "standard-wall.png": {
+      "frame": {
+        "x": 171,
+        "y": 171,
+        "w": 32,
+        "h": 32
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      },
+      "sourceSize": {
+        "w": 32,
+        "h": 32
+      },
+      "pivot": {
+        "x": 16,
+        "y": 16
+      },
+      "9slicedFrame": {
+        "x": 0,
+        "y": 0,
+        "w": 32,
+        "h": 32
+      }
+    },
+    "dirt.png": {
+      "frame": {
+        "x": 171,
+        "y": 205,
         "w": 32,
         "h": 32
       },
@@ -1334,6 +1424,7 @@
   },
   "tileIndices": {
     "128": "giant-bat.png",
+    "273": "shopkeeper.png",
     "312": "baalzebub.png",
     "383": "hero.png",
     "411": "dagger.png",
@@ -1376,6 +1467,8 @@
     "2004": "equipped-sword.png",
     "2005": "dirt.png",
     "2006": "ghost.png",
-    "2007": "bomb.png"
+    "2007": "bomb.png",
+    "2008": "skeleton.png",
+    "2009": "skeleton-headless.png"
   }
 }

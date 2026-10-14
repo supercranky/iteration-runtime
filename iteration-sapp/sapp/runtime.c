@@ -75,6 +75,7 @@
 #include "models/models.h"
 
 static uint32_t min_layers_texture(void);
+static void min_layers_dimensions(int *width,int *height);
 static NVGcontext *screen_world_vg, *screen_ui_vg;
 static int screen_fonts_loaded;
 
@@ -1557,6 +1558,7 @@ void engine_draw_texture_clip(double source_x, double source_y, double source_wi
 }
 
 #include "engines/particle_mask.h"
+#include "engines/world_scene.h"
 
 // Queue an atlas sprite through the same per-fragment direct-light mask as
 // particles. This is a world-effect pass, after world sprites/lighting and before UI.
@@ -1614,17 +1616,25 @@ static JSValue js_engine_draw_light_masked_sprite(JSContext *ctx, JSValueConst t
 #endif
 }
 
+static void engine_draw_world_particle(int texture_id,int texture_width,int texture_height,
+  float x,float y,float z,float rotation,float size,float opacity,int mask,float threshold,float softness);
+
 static void engine_draw_particle(int phase, int texture_id, int texture_width, int texture_height,
                                  float x, float y, float rotation, float size, float opacity,
                                  int mask_direct_light, float mask_threshold, float mask_softness)
 {
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
-  if(mask_direct_light){if(phase==0){particle_mask.active=particle_mask_begin(texture_id,mask_threshold,mask_softness);return;}if(phase==2){if(particle_mask.active)particle_mask_end();particle_mask.active=0;return;}if(particle_mask.active)particle_mask_draw(texture_id,texture_width,texture_height,x,y,rotation,size,opacity);return;}
+  if(engine_world_enabled()) {
+    if(phase==1)engine_draw_world_particle(texture_id,texture_width,texture_height,x,y,0,rotation,size,opacity,
+      mask_direct_light,mask_threshold,mask_softness);
+    return;
+  }
+  if(mask_direct_light&1){if(phase==0){particle_mask.active=particle_mask_begin(texture_id,mask_threshold,mask_softness);return;}if(phase==2){if(particle_mask.active)particle_mask_end();particle_mask.active=0;return;}if(particle_mask.active)particle_mask_draw(texture_id,texture_width,texture_height,x,y,rotation,size,opacity);return;}
 #else
   (void)mask_direct_light;(void)mask_threshold;(void)mask_softness;
 #endif
-  if (phase == 0) { engine_set_texture(texture_id); sgl_begin_quads(); return; }
-  if (phase == 2) { sgl_end(); return; }
+  if (phase == 0) { if(mask_direct_light&2)sgl_layer(1);engine_set_texture(texture_id); sgl_begin_quads(); return; }
+  if (phase == 2) { sgl_end();if(mask_direct_light&2)sgl_layer(0); return; }
   float hx = size * .001f;
   float hy = texture_width > 0 ? hx * (float)texture_height / (float)texture_width : hx;
   float px = x * .002f, py = -y * .002f;
@@ -1633,6 +1643,34 @@ static void engine_draw_particle(int phase, int texture_id, int texture_width, i
   const float uv[8] = {0,1, 1,1, 1,0, 0,0};
   sgl_c4f(opacity, opacity, opacity, opacity);
   for (int i=0;i<4;i++) { float cx=corners[i*2],cy=corners[i*2+1];sprite_pixel_vertex(px+cx*cs-cy*sn,py+cx*sn+cy*cs,uv[i*2],uv[i*2+1]); }
+}
+
+static void engine_draw_world_particle(int texture,int width,int height,float x,float y,float z,
+  float rotation,float size,float opacity,int mask,float threshold,float softness) {
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+  if(engine_world_enabled()) {
+    float hx=size*.5f,hy=width>0?hx*(float)height/width:hx;
+    float cs=cosf(rotation),sn=sinf(rotation),tilt=world_scene.tilt;
+    float cy=cosf(world_scene.yaw),sy=sinf(world_scene.yaw);
+    const float corners[8]={-1,-1,1,-1,1,1,-1,1};float vertices[20];
+    for(int i=0;i<4;i++) {
+      float a=corners[i*2]*hx,b=corners[i*2+1]*hy;
+      float rx=a*cs-b*sn,ry=a*sn+b*cs;
+      float gy=ry*cosf(tilt);
+      vertices[i*5]=x+cy*rx+sy*gy;vertices[i*5+1]=y-sy*rx+cy*gy;
+      vertices[i*5+2]=z-ry*sinf(tilt);vertices[i*5+3]=x;vertices[i*5+4]=y;
+    }
+    unsigned first=world_scene.count;
+    if(world_scene_quad(texture,vertices,0,0,width,height,opacity,1,(mask&2)?2:1,0)&&(mask&1))
+      for(unsigned i=first;i<world_scene.count;i++){world_scene.vertices[i].threshold=threshold;world_scene.vertices[i].softness=softness;}
+    return;
+  }
+#endif
+  // Classic presentation: elevation rises vertically on screen, while the
+  // same simulation continues unchanged across renderer switches.
+  engine_draw_particle(0,texture,width,height,0,0,0,0,0,mask,threshold,softness);
+  engine_draw_particle(1,texture,width,height,x,y-z,rotation,size,opacity,mask,threshold,softness);
+  engine_draw_particle(2,texture,width,height,0,0,0,0,0,mask,threshold,softness);
 }
 
 static JSValue js_engine_draw_textured_triangle(JSContext *ctx, JSValueConst this_val,
@@ -2749,6 +2787,10 @@ static const JSCFunctionListEntry js_my_module_funcs[] = {
     JS_CFUNC_DEF("setClearColor", 4, js_engine_set_clear_color),
 
     JS_CFUNC_DEF("drawTextureClip", 11, js_engine_draw_texture_clip),
+    JS_CFUNC_DEF("setWorldCamera", 4, js_world_camera),
+    JS_CFUNC_DEF("drawWorldQuad", 15, js_world_quad),
+    JS_CFUNC_DEF("setWorldRadialLight", 6, js_world_radial_light),
+    JS_CFUNC_DEF("setWorldCameraYaw", 3, js_world_camera_yaw),
     JS_CFUNC_DEF("drawLightMaskedSprite", 8, js_engine_draw_light_masked_sprite),
 
     JS_CFUNC_DEF("now", 0, js_engine_now),
@@ -2912,6 +2954,7 @@ void engine_shutdown()
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
   particle_mask_shutdown();
 #endif
+  world_scene_shutdown();
   models_shutdown();
   particle_js_shutdown();
   wasm_plugins_shutdown();
@@ -2960,6 +3003,7 @@ void engine_frame()
 
   gpu_profile_frame_begin();
   models_update(sapp_frame_duration());
+  world_scene_reset();
 
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
   particle_mask_reset();
@@ -2974,13 +3018,15 @@ void engine_frame()
   float particle_top=get_translated_y(-500),particle_bottom=get_translated_y(500);
   float particle_pad_x=2*fabsf(particle_right-particle_left)/fmaxf(1,sapp_width());
   float particle_pad_y=2*fabsf(particle_bottom-particle_top)/fmaxf(1,sapp_height());
-  particle_system_set_viewport(particle_left-particle_pad_x,particle_top-particle_pad_y,
-    particle_right+particle_pad_x,particle_bottom+particle_pad_y);
+  float particle_extent=engine_world_light_extent();
+  particle_system_set_viewport(particle_left*particle_extent-particle_pad_x,particle_top*particle_extent-particle_pad_y,
+    particle_right*particle_extent+particle_pad_x,particle_bottom*particle_extent+particle_pad_y);
   particle_system_render_all(engine_draw_particle);
+  particle_system_render_world(engine_draw_world_particle);
   gpu_profile_begin(1);
   sgl_draw_layer(0);
   sg_end_pass();
-  models_render();
+  if(!engine_world_enabled())models_render();
   sg_begin_pass(&(sg_pass){.swapchain=sglue_swapchain(),.action={
       .colors[0].load_action=SG_LOADACTION_LOAD,
       .depth.load_action=SG_LOADACTION_LOAD,
@@ -3002,9 +3048,19 @@ void engine_frame()
   }
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
   gpu_profile_begin(3);
-  particle_mask_present();
+  if(!engine_world_enabled())particle_mask_present();
   gpu_profile_end();
 #endif
+  if(engine_world_enabled()) {
+    gpu_profile_begin(1);
+    world_scene_present(0);
+    models_render();
+    gpu_profile_end();
+    gpu_profile_begin(3);
+    world_scene_present(1);
+    world_scene_present(2); // Explicit foreground particles: after world depth, before UI.
+    gpu_profile_end();
+  }
   gpu_profile_begin(4);
   screen_overlay_present();
   gpu_profile_end();

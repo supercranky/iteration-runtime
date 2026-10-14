@@ -235,7 +235,9 @@ Loading is asynchronous and callback-based. Loaded textures, sounds, fonts, mode
 | `loadTexture(path, callback)` | Loads an image and calls `callback({ id, name, width, height, widthPixels, heightPixels })`. |
 | `loadText(path, callback)` | Loads a UTF-8 text asset and passes its contents to the callback. |
 | `loadSound(path, callback)` | Loads audio and calls `callback({ id, name })`. |
-| `playSound(soundId, volume, pitch)` | Plays a loaded sound with the requested volume and playback-speed multiplier. |
+| `playSound(soundId, volume = 1, pitch = 1, loop = false)` | Returns a playback voice handle (not the asset ID). Volume must be finite in `[0,1]`, pitch finite and positive. Each call starts an independent voice. |
+| `stopSound(voice)` | Stops a voice immediately; returns whether the handle was still valid. |
+| `fadeOutSound(voice, seconds = 0.5)` | Fades to silence and schedules a stop. Duration must be finite in `[0,3600]`; zero stops immediately. Returns false for an expired/invalid voice. |
 | `loadFont(path, callback)` | Loads a font for NanoVG text and calls `callback({ id, name })`. |
 
 ### Sprites and triangles
@@ -253,6 +255,71 @@ Call `setTexture` before submitting textured geometry.
 | `setSpriteLayer(layer)` | Selects a sprite layer from `0` through `131`. Layer `131` is reserved for UI sprites drawn after NanoVG panels and text. Restore layer `0` after submitting UI sprites. |
 | `setSpriteForeground(enabled)` | Compatibility helper selecting the background or foreground sprite layer. |
 | `flushRendering()` | Flushes submitted rendering and starts another pass. |
+
+### Depth-tested world scene (GLES3)
+
+These optional APIs use logical ground coordinates `(x, y)` (positive y down)
+plus elevation `z` (positive up). They do not move the application camera or
+convert input coordinates; the application owns those transforms. Unsupported
+backends return `false`.
+
+| API | Description |
+| --- | --- |
+| `setWorldCamera(enabled, tilt = 35, distance = 1600, lightExtent = 1)` | Enables/disables perspective world rendering. Tilt is in degrees `[0,65]`, distance in `[800,10000]`, and light extent in `[1,4]`; all must be finite. Returns false if GPU preparation fails. Light extent expands the ground-plane lighting coverage. |
+| `setWorldRadialLight(x, y, innerRadius, outerRadius, coreBrightness, ambientBrightness)` | Sets the shared radial-only light. Radii satisfy `0 <= innerRadius <= outerRadius`; brightness values are in `[0,1]`. Values must be finite with magnitude at most `1e7`. Returns true on supported backends. |
+| `drawWorldQuad(textureId, sourceX, sourceY, sourceWidth, sourceHeight, vertices, alpha = 1, shade = 1, translucent = false, flipX = false, tint = null, threshold = -1, softness = 0, unlit = false, radial = false)` | Queues a textured quad; returns whether it was queued. Uses nearest-neighbor sampling and an explicit texture ID, independent of `setTexture`. |
+
+`vertices` contains exactly four consecutive `[x, y, z, lightX, lightY]`
+records (20 finite numbers). Texture corners are top-left, top-right,
+bottom-right, bottom-left; triangles are `(0,1,2)` and `(0,2,3)`.
+`lightX/lightY` locate each vertex in the **unprojected ground lighting plane**;
+they need not equal its position, e.g. an elevated wall can sample its base.
+Source rectangles use texture pixels, with nonnegative origins and positive
+sizes. Vertex/material magnitudes are limited to `1e7`.
+
+Alpha is in `[0,1]`, shade in `[0,2]`. Optional tint is
+`{ r, g, b, amount }`, all finite in `[0,1]`, preserving texture alpha.
+Threshold is in `[-1,1]`: negative disables the visibility mask; otherwise light
+brightness is smoothly revealed over `threshold` to `threshold + softness`
+(softness in `[0,1]`). Normal surfaces sample the completed minimum-alpha mask;
+without a mask they are fully lit. `unlit` bypasses this lighting. `radial`
+overrides `unlit` and uses the shared radial light instead of the mask.
+
+Opaque/cutout quads write depth; translucent quads depth-test without writing it.
+Translucent submissions are not depth-sorted: submit them back-to-front.
+Texture alpha below `0.08` is discarded. The queue resets each frame and is
+bounded to 65,536 quads and 4,096 adjacent texture/translucency batches;
+disabled rendering, unavailable textures, allocation failure or full queues
+return false. Enabling this path replaces the world background with a black
+clear; keep screen UI in the existing UI pass.
+
+```js
+Runtime.setWorldCamera(true, 35, 1600, 2);
+Runtime.setOnFrame(() => {
+    // Ground tile: x, y, elevation, lighting x, lighting y.
+    Runtime.drawWorldQuad(atlasId, 0, 0, 32, 32, [
+        -16, -16, 0, -16, -16,
+         16, -16, 0,  16, -16,
+         16,  16, 0,  16,  16,
+        -16,  16, 0, -16,  16
+    ]);
+});
+```
+
+### Lighting controls and masked sprites (GLES3)
+
+| API | Description |
+| --- | --- |
+| `setLightLayerResolution(scale)` | Selects `1` (default), `0.5` or `0.25`. Applies lazily to the next lighting group. Returns false during an active layer/group or on unsupported backends; invalid scales throw. |
+| `setLightLayerBounds(left, top, right, bottom)` | Supplies a conservative logical influence rectangle for subsequent layers. Coordinates must be finite and ordered. The first layer remains full-size. Returns false inside an active layer or on unsupported backends. Call with **no arguments** to clear bounds. The application must guarantee layers cannot reduce alpha outside the rectangle. |
+| `drawLightMaskedSprite(textureId, sourceX, sourceY, sourceWidth, sourceHeight, x, y, scale, alpha = 1, flipX = false, nearest = false, tint = null, threshold = 0.45, softness = 0.15)` | Queues a centered, unrotated atlas sprite through the particle direct-light mask pass. Uses an explicit texture ID. Returns false when skipped, unavailable or unsupported; true when queued. |
+
+Masked sprite rectangles must fit the source image; dimensions must be positive,
+scale nonnegative, and alpha/threshold/softness in `[0,1]`. Numeric arguments
+must be finite. Tint uses `{ r, g, b, amount }` in `[0,1]` and defaults to no
+tint. Sprite pixel snapping is respected. These sprites share the bounded
+particle mask queue and render after world lighting, before the overlay/UI;
+zero scale/alpha or no completed lighting mask skips drawing.
 
 ### Best-effort GPU profiling
 
@@ -366,8 +433,22 @@ dust.start();
 
 - `start()`, `stop()`, `pause()`, `resume()`, and `destroy()`
 - `emit(count = 1)`
-- `setPosition(x, y)`, `setRotation(radians)`, and `setScale(scale)`
+- `setPosition(x, y, z = 0)`, `setRotation(radians)`, and `setScale(scale)`
 - `setEmissionRate(rate)`
+
+#### 3D particle extensions
+
+Set `world3d: true` for elevated world particles. `elevation` supplies initial
+height and `velocity.z` supplies vertical velocity, using the existing numeric
+value/range/curve syntax. `setPosition(x, y, z = 0)` sets emitter elevation;
+a two-argument call resets it to zero. Transform values must be finite with
+magnitude at most `1e7`.
+
+`spawn.shape: "box"` uses `width`, `height` and `depth`; `"sphere"` uses
+`radius`. Both shapes automatically enable `world3d`. Dimensions must be finite,
+nonnegative and at most `1e7`. Modifiers accept a `z` component alongside `x`
+and `y`. Existing 2D configurations remain valid; enable the world camera for
+the depth-tested world presentation.
 
 On GLES3/WebGL2, `render.mask: { source: "directLight", threshold: 0.45,
 softness: 0.15 }` samples the current completed minimum-alpha lighting texture

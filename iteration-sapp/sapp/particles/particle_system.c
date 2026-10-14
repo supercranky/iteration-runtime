@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define PARTICLE_PI 3.14159265358979323846f
-#define PFIELDS 13
+#define PFIELDS 15
 
 static ParticleSystem *systems;
 static uint32_t next_id = 1;
@@ -56,6 +56,7 @@ static int pool_init(ParticlePool *p, uint32_t capacity, uint32_t modifiers) {
   p->base_size=p->size+capacity; p->rotation=p->base_size+capacity; p->opacity=p->rotation+capacity;
   p->random0=p->opacity+capacity; p->random1=p->random0+capacity;
   p->angular_velocity=p->random1+capacity;
+  p->z=p->angular_velocity+capacity;p->vz=p->z+capacity;
   for(uint32_t m=0;m<modifiers;m++) {
     p->modifier_strength[m]=(float*)calloc((size_t)capacity*2,sizeof(float));
     if(!p->modifier_strength[m]) return 0;
@@ -100,10 +101,14 @@ void particle_system_stop(ParticleSystem*s){if(s){s->running=0;s->emission_accum
 
 static void spawn_one(ParticleSystem *s) {
   ParticlePool*p=&s->pool;if(p->count>=p->capacity)return;uint32_t i=p->count++;
-  float x=0,y=0,r0=rng01(s),r1=rng01(s);
+  float x=0,y=0,z=0,r0=rng01(s),r1=rng01(s);
   switch(s->config.spawn_shape){
+    case PARTICLE_SPAWN_BOX:z=(rng01(s)-.5f)*s->config.spawn_depth;
+    /* fall through */
     case PARTICLE_SPAWN_RECT:x=(r0-.5f)*s->config.spawn_width;y=(r1-.5f)*s->config.spawn_height;break;
     case PARTICLE_SPAWN_CIRCLE:{float a=2*PARTICLE_PI*r0,r=sqrtf(r1)*s->config.spawn_radius;x=cosf(a)*r;y=sinf(a)*r;break;}
+    case PARTICLE_SPAWN_SPHERE:{float a=2*PARTICLE_PI*r0,h=2*r1-1,r=cbrtf(rng01(s))*s->config.spawn_radius;
+      float ring=sqrtf(fmaxf(0,1-h*h))*r;x=cosf(a)*ring;y=sinf(a)*ring;z=h*r;break;}
     case PARTICLE_SPAWN_AREA:x=s->config.area_x+r0*s->config.area_width;y=s->config.area_y+r1*s->config.area_height;break;
     default:break;
   }
@@ -118,6 +123,12 @@ static void spawn_one(ParticleSystem *s) {
   p->rotation[i]=particle_value_evaluate(&s->config.rotation,rng01(s),0);
   p->angular_velocity[i]=particle_value_evaluate(&s->config.angular_velocity,rng01(s),0);
   p->opacity[i]=particle_value_evaluate(&s->config.opacity,rng01(s),0);
+  p->z[i]=p->vz[i]=0;
+  if(s->config.world3d) {
+    p->z[i]=z+particle_value_evaluate(&s->config.elevation,rng01(s),0);
+    p->vz[i]=particle_value_evaluate(&s->config.velocity_z,rng01(s),0)*speed;
+    if(s->config.space==PARTICLE_SPACE_WORLD)p->z[i]=s->position_z+p->z[i]*s->scale;
+  }
   for(uint32_t m=0;m<s->config.modifier_count;m++){
     p->modifier_strength[m][i]=particle_value_evaluate(&s->config.modifiers[m].strength,rng01(s),0);
     p->modifier_frequency[m][i]=particle_value_evaluate(&s->config.modifiers[m].frequency,rng01(s),0);
@@ -127,7 +138,7 @@ void particle_system_emit(ParticleSystem*s,uint32_t n){if(!s)return;while(n--&&s
 
 static void remove_particle(ParticleSystem*s,uint32_t i){ParticlePool*p=&s->pool;uint32_t q=--p->count;if(i==q)return;
 #define CP(field) p->field[i]=p->field[q]
-  CP(x);CP(y);CP(vx);CP(vy);CP(age);CP(lifetime);CP(size);CP(base_size);CP(rotation);CP(opacity);CP(random0);CP(random1);CP(angular_velocity);
+  CP(x);CP(y);CP(z);CP(vx);CP(vy);CP(vz);CP(age);CP(lifetime);CP(size);CP(base_size);CP(rotation);CP(opacity);CP(random0);CP(random1);CP(angular_velocity);
   for(uint32_t m=0;m<s->config.modifier_count;m++){p->modifier_strength[m][i]=p->modifier_strength[m][q];p->modifier_frequency[m][i]=p->modifier_frequency[m][q];}
 #undef CP
 }
@@ -142,11 +153,11 @@ void particle_system_update(ParticleSystem*s,float dt){if(!s||s->paused||dt<=0)r
     if(s->config.size_over_life.type==PARTICLE_VALUE_CURVE)p->size[i]=p->base_size[i]*particle_value_evaluate(&s->config.size_over_life,p->random0[i],life);
     else if(s->config.size.type==PARTICLE_VALUE_CURVE)p->size[i]=particle_value_evaluate(&s->config.size,p->random0[i],life);
     for(uint32_t m=0;m<s->config.modifier_count;m++){ParticleModifier*mod=&s->config.modifiers[m];float strength=mod->strength.type==PARTICLE_VALUE_CURVE?particle_value_evaluate(&mod->strength,p->random0[i],life):p->modifier_strength[m][i],freq=mod->frequency.type==PARTICLE_VALUE_CURVE?particle_value_evaluate(&mod->frequency,p->random1[i],life):p->modifier_frequency[m][i];
-      if(mod->type==PARTICLE_MOD_ACCELERATION){p->vx[i]+=mod->x*strength*dt;p->vy[i]+=mod->y*strength*dt;}
-      else if(mod->type==PARTICLE_MOD_DRAG){float factor=expf(-fmaxf(0,strength)*dt);p->vx[i]*=factor;p->vy[i]*=factor;}
+      if(mod->type==PARTICLE_MOD_ACCELERATION){p->vx[i]+=mod->x*strength*dt;p->vy[i]+=mod->y*strength*dt;p->vz[i]+=mod->z*strength*dt;}
+      else if(mod->type==PARTICLE_MOD_DRAG){float factor=expf(-fmaxf(0,strength)*dt);p->vx[i]*=factor;p->vy[i]*=factor;p->vz[i]*=factor;}
       else if(mod->type==PARTICLE_MOD_NOISE){float phase=p->random0[i]*37.0f+p->age[i]*freq*2*PARTICLE_PI;p->vx[i]+=cosf(phase)*strength*dt;p->vy[i]+=sinf(phase*1.317f)*strength*dt;}
     }
-    p->x[i]+=p->vx[i]*dt;p->y[i]+=p->vy[i]*dt;p->rotation[i]+=p->angular_velocity[i]*dt;
+    p->x[i]+=p->vx[i]*dt;p->y[i]+=p->vy[i]*dt;p->z[i]+=p->vz[i]*dt;p->rotation[i]+=p->angular_velocity[i]*dt;
     if(s->config.opacity.type==PARTICLE_VALUE_CURVE)p->opacity[i]=particle_value_evaluate(&s->config.opacity,p->random1[i],life);
     float l=s->config.area_x,r=l+s->config.area_width,t=s->config.area_y,b=t+s->config.area_height;
     int outside=p->x[i]<l||p->x[i]>r||p->y[i]<t||p->y[i]>b;
@@ -160,7 +171,7 @@ void particle_system_update(ParticleSystem*s,float dt){if(!s||s->paused||dt<=0)r
 }
 void particle_system_update_all(float dt){for(ParticleSystem*s=systems;s;s=s->next)particle_system_update(s,dt);}
 
-static void render_systems(ParticleDrawFn draw,int filter){if(!draw)return;for(ParticleSystem*s=systems;s;s=s->next){if(filter>=0&&!!s->mask_direct_light!=filter)continue;ParticlePool*p=&s->pool;
+static void render_systems(ParticleDrawFn draw,int filter){if(!draw)return;for(ParticleSystem*s=systems;s;s=s->next){if(s->config.world3d)continue;if(filter>=0&&!!(s->mask_direct_light&1)!=filter)continue;ParticlePool*p=&s->pool;
   /* Scale-zero local systems are hidden by the application. Keep simulating
      their ages/RNG, but never start a render batch (or traverse their particles). */
   if(s->texture_id<0||!p->count||(s->config.space==PARTICLE_SPACE_LOCAL&&s->scale==0))continue;
@@ -180,6 +191,29 @@ static void render_systems(ParticleDrawFn draw,int filter){if(!draw)return;for(P
   if(!started){draw(0,s->texture_id,s->texture_width,s->texture_height,0,0,0,0,0,s->mask_direct_light,s->mask_threshold,s->mask_softness);started=1;}
   draw(1,s->texture_id,s->texture_width,s->texture_height,x,y,rot,size,p->opacity[i],s->mask_direct_light,s->mask_threshold,s->mask_softness);
 }if(started)draw(2,s->texture_id,s->texture_width,s->texture_height,0,0,0,0,0,s->mask_direct_light,s->mask_threshold,s->mask_softness);}}
+void particle_system_render_world(ParticleDraw3DFn draw) {
+  if(!draw)return;
+  for(ParticleSystem*s=systems;s;s=s->next) {
+    if(!s->config.world3d||s->texture_id<0||(s->config.space==PARTICLE_SPACE_LOCAL&&s->scale==0))continue;
+    ParticlePool*p=&s->pool;
+    for(uint32_t i=0;i<p->count;i++) {
+      if(!(p->opacity[i]>0))continue;
+      float x=p->x[i],y=p->y[i],z=p->z[i],size=p->size[i],rotation=p->rotation[i];
+      for(uint32_t m=0;m<s->config.modifier_count;m++)if(s->config.modifiers[m].type==PARTICLE_MOD_OSCILLATION) {
+        float phase=p->random0[i]*2*PARTICLE_PI+p->age[i]*p->modifier_frequency[m][i]*2*PARTICLE_PI;
+        float amount=sinf(phase)*p->modifier_strength[m][i];
+        x+=s->config.modifiers[m].x*amount;y+=s->config.modifiers[m].y*amount;z+=s->config.modifiers[m].z*amount;
+      }
+      if(s->config.space==PARTICLE_SPACE_LOCAL) {
+        float cs=cosf(s->rotation),sn=sinf(s->rotation),tx=x*s->scale,ty=y*s->scale;
+        x=s->position_x+tx*cs-ty*sn;y=s->position_y+tx*sn+ty*cs;
+        z=s->position_z+z*s->scale;size*=s->scale;rotation+=s->rotation;
+      }
+      draw(s->texture_id,s->texture_width,s->texture_height,x,y,z,rotation,size,p->opacity[i],
+        s->mask_direct_light,s->mask_threshold,s->mask_softness);
+    }
+  }
+}
 void particle_system_render_all(ParticleDrawFn draw){render_systems(draw,-1);}
 void particle_system_render_masked(ParticleDrawFn draw,int masked){render_systems(draw,!!masked);}
 void particle_system_shutdown_all(void){while(systems)particle_system_destroy(systems);render_viewport.enabled=0;}

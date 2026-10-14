@@ -30,8 +30,8 @@ typedef struct {
 typedef struct {
   uint32_t capacity;
   uint32_t count;
-  float *x, *y;
-  float *vx, *vy;
+  float *x, *y, *z;
+  float *vx, *vy, *vz;
   float *age, *lifetime;
   float *size, *base_size, *rotation;
   float *opacity;
@@ -45,14 +45,14 @@ typedef struct {
 typedef enum { PARTICLE_BOUNDARY_NONE, PARTICLE_BOUNDARY_WRAP, PARTICLE_BOUNDARY_BOUNCE,
   PARTICLE_BOUNDARY_KILL, PARTICLE_BOUNDARY_CLAMP } ParticleBoundary;
 typedef enum { PARTICLE_SPAWN_POINT, PARTICLE_SPAWN_RECT, PARTICLE_SPAWN_CIRCLE,
-  PARTICLE_SPAWN_AREA } ParticleSpawnShape;
+  PARTICLE_SPAWN_AREA, PARTICLE_SPAWN_BOX, PARTICLE_SPAWN_SPHERE } ParticleSpawnShape;
 typedef enum { PARTICLE_SPACE_WORLD, PARTICLE_SPACE_LOCAL } ParticleSpace;
 typedef enum { PARTICLE_MOD_ACCELERATION, PARTICLE_MOD_DRAG, PARTICLE_MOD_OSCILLATION,
   PARTICLE_MOD_NOISE } ParticleModifierType;
 
 typedef struct {
   ParticleModifierType type;
-  float x, y;
+  float x, y, z;
   ParticleValue strength;
   ParticleValue frequency;
 } ParticleModifier;
@@ -65,10 +65,12 @@ typedef struct {
   float emission_rate;
   int prewarm;
   ParticleSpawnShape spawn_shape;
-  float spawn_width, spawn_height, spawn_radius;
+  float spawn_width, spawn_height, spawn_radius, spawn_depth;
   ParticleSpace space;
   ParticleValue lifetime, velocity_x, velocity_y, speed, size, size_over_life, opacity;
   ParticleValue rotation, angular_velocity;
+  int world3d;
+  ParticleValue elevation, velocity_z;
   ParticleModifier modifiers[PARTICLE_MAX_MODIFIERS];
   uint32_t modifier_count;
 } ParticleConfig;
@@ -79,15 +81,16 @@ typedef struct ParticleSystem {
   ParticlePool pool;
   uint32_t rng;
   float emission_accumulator;
-  float position_x, position_y, rotation, scale;
+  float position_x, position_y, position_z, rotation, scale;
   int running, paused, destroyed;
   int texture_id, texture_width, texture_height;
   float mask_threshold, mask_softness;
-  int mask_direct_light;
+  int mask_direct_light; // Render flags: bit 0 direct-light mask, bit 1 foreground.
   struct ParticleSystem *next;
 } ParticleSystem;
 
-/* phase: 0 begins a system batch, 1 emits an instance, 2 ends the batch. */
+/* phase: 0 begins a system batch, 1 emits an instance, 2 ends the batch.
+ * mask_direct_light/mask carry render flags: 1 = light mask, 2 = foreground. */
 typedef void (*ParticleDrawFn)(int phase, int texture_id, int texture_width, int texture_height,
   float x, float y, float rotation, float size, float opacity, int mask_direct_light,
   float mask_threshold, float mask_softness);
@@ -104,6 +107,9 @@ void particle_system_update_all(float dt);
 /* Render-only culling in world coordinates; nonfinite bounds disable culling.
  * Simulation remains active offscreen. Caller may pad bounds for raster AA. */
 void particle_system_set_viewport(float left, float top, float right, float bottom);
+typedef void (*ParticleDraw3DFn)(int texture, int width, int height, float x, float y, float z,
+  float rotation, float size, float opacity, int mask, float threshold, float softness);
+void particle_system_render_world(ParticleDraw3DFn draw);
 void particle_system_render_all(ParticleDrawFn draw);
 void particle_system_render_masked(ParticleDrawFn draw, int masked);
 void particle_system_shutdown_all(void);

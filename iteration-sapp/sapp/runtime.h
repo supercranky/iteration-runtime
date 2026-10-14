@@ -16,6 +16,10 @@ extern "C"
   void engine_shutdown();
 
   int engine_get_viewport_mode();
+  int engine_world_enabled(void);
+  float engine_world_light_extent(void);
+  void engine_world_projection(float *matrix16);
+  uint32_t engine_world_light_texture(int *width, int *height);
   void engine_handle_event(const sapp_event *e);
 
   void engine_draw_texture_clip(double source_x, double source_y, double source_width, double source_height, double x, double y, double anchor_x, double anchor_y, double rotation, double scale, double alpha);

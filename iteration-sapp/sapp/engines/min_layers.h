@@ -119,6 +119,13 @@ static int min_layers_prepare(NVGcontext *main, int width, int height)
     min_layers.layer = nvgluCreateFramebuffer(min_layers.vg, width, height, 0);
     min_layers.combined = nvgluCreateFramebuffer(min_layers.vg, width, height, 0);
     if (!min_layers.layer || !min_layers.combined) return 0;
+    // This render target has only level zero. Native model samplers use a
+    // mip-filtering Sokol sampler; leaving MAX_LEVEL at GL's default makes an
+    // imported NanoVG texture incomplete and returns opaque black (darkness=1).
+    GLint previous_texture=0;glGetIntegerv(GL_TEXTURE_BINDING_2D,&previous_texture);
+    glBindTexture(GL_TEXTURE_2D,min_layers.combined->texture);
+    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAX_LEVEL,0);
+    glBindTexture(GL_TEXTURE_2D,(GLuint)previous_texture);
     min_layers.image = nvglCreateImageFromHandleGLES2(main, min_layers.combined->texture,
       width, height, NVG_IMAGE_NODELETE | NVG_IMAGE_PREMULTIPLIED);
     min_layers.width=width; min_layers.height=height;
@@ -254,6 +261,7 @@ static void min_layers_abort(NVGcontext **vg)
 static int min_layers_balanced(void){return !min_layers.active;}
 static int min_layers_coverage_allowed(void){return min_layers.active && min_layers.coverage_allowed;}
 static void min_layers_close_coverage(void){min_layers.coverage_allowed=0;}
+static void min_layers_dimensions(int *width,int *height){*width=min_layers.width;*height=min_layers.height;}
 static uint32_t min_layers_texture(void){return min_layers.completed && min_layers.completed_frame==sapp_frame_count() && min_layers.combined ? (uint32_t)min_layers.combined->texture : 0;}
 #else
 static int min_layers_set_bounds(const float *bounds){(void)bounds;return 0;}
@@ -265,5 +273,6 @@ static void min_layers_abort(NVGcontext **vg){(void)vg;}
 static int min_layers_balanced(void){return 1;}
 static int min_layers_coverage_allowed(void){return 0;}
 static void min_layers_close_coverage(void){}
+static void min_layers_dimensions(int *width,int *height){*width=*height=0;}
 static uint32_t min_layers_texture(void){return 0;}
 #endif

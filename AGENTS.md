@@ -113,6 +113,44 @@ indices before dereferencing and free temporary arrays on failures. Verify with
 Ner's `verify-bone-palette.mjs` (Chromium/WebKit), `verify-model-pixels.mjs` and a
 full-game smoke check. These native features require an iPhone rebuild.
 
+## Optional projected world rendering
+
+`engines/world_scene.h` implements the opt-in GLES3/WebGL2 `setWorldCamera` and
+`drawWorldQuad` path. Classic remains the default. World vertices contain logical
+ground position, height and separate ground-light sample coordinates. Keep the
+queue bounded, validate inputs before submission and release GPU/CPU resources at
+VM shutdown. Opaque surfaces and GLB models share depth; blended world sprites and
+particles test it without writing. The world passes run after the flat lighting
+field is complete and before vignette/screen UI. Preserve saved scissor rectangles,
+premultiplied alpha, sampler cleanup and Sokol cache resets.
+`setWorldCameraYaw(degrees, pivotX, pivotY)` rotates the shared projection around
+logical ground coordinates. Keep light sampling in unrotated world space and
+counter-rotate particle billboard offsets. The app must mirror yaw/pivot in JS
+projection/picking and expand ground-light/culling bounds for rotated views.
+Zero yaw must preserve the old projection exactly; reset yaw with camera modes.
+
+Models import the completed light texture into a non-owning Sokol image/view;
+recreate that wrapper on texture/dimension changes and never delete the underlying
+minimum-layer texture. That single-level target must set `GL_TEXTURE_MAX_LEVEL`
+to zero for completeness under Sokol's mip-filtering sampler; otherwise models
+sample opaque black and disappear into darkness. `drawWorldQuad` accepts an
+optional `unlit` and `radialLight` flags for surfaces independent of the shadow
+field. `setWorldRadialLight` supplies bounded core/ambient brightness and ground
+position/radii for a per-fragment radial gradient.
+Perspective pixel props crop the shared projection into the existing bounded
+pixel target, then composite palette/outline pixels with packed 24-bit surface
+depth. Outline depth comes from covered neighbours, never a flat sprite depth;
+adjacent floors must still hide recessed geometry. Preserve Classic's pixel
+raster exactly. Ner `verify-perspective-surfaces.mjs` checks palettes/outlines,
+radial wall lighting and floor occlusion in Chromium and WebKit.
+Particles opt into elevation/vertical velocity with `world3d`; existing 2D configs
+must retain RNG behavior. `setPosition` accepts an optional third height argument.
+Run `tests/particle-3d.c`, existing particle/culling tests under ASAN/UBSAN, and
+Ner's `verify-perspective.mjs` in Chromium/WebKit plus Classic lighting/models/
+particle-mask regressions. Ner documents current limits in
+`../ner/docs/perspective-renderer.md`. No phone performance claim without a device
+build/test; web artifact updates cannot install native code through iOS hot reload.
+
 ## Particle rendering
 
 `engines/particle_mask.h` batches direct-light masked quads and samples the lighting

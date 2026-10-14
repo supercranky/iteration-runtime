@@ -1,4 +1,5 @@
 #include "models.h"
+#include "../runtime.h"
 #include "../HandmadeMath.h"
 #include "sokol_app.h"
 #include "sokol_fetch.h"
@@ -107,7 +108,7 @@ static struct {
     ModelInstance instances[MODEL_INSTANCES];
     sg_shader shader, pixel_shader, composite_shader;
     sg_pipeline pipelines[2][2][3]; /* double-sided, pixel mode, alpha */
-    sg_pipeline composite_pipeline;
+    sg_pipeline composite_pipeline, world_composite_pipeline;
     sg_image pixel_color, pixel_geometry, pixel_depth;
     sg_view pixel_color_view, pixel_geometry_view;
     sg_attachments pixel_attachments;
@@ -117,6 +118,8 @@ static struct {
     sg_sampler sampler;
     sg_image white_image;
     sg_view white_view;
+    sg_image ground_image; sg_view ground_view;
+    uint32_t ground_texture; int ground_width,ground_height;
     float pitch, yaw, ambient, steps;
     float light_dir[3];
 } models;
@@ -336,6 +339,9 @@ void models_init(JSContext *ctx) {
     models.composite_pipeline=sg_make_pipeline(&(sg_pipeline_desc){.shader=models.composite_shader,.sample_count=sapp_sample_count(),
         .depth={.pixel_format=SG_PIXELFORMAT_DEPTH_STENCIL,.compare=SG_COMPAREFUNC_ALWAYS,.write_enabled=false},
         .colors[0].blend={.enabled=true,.src_factor_rgb=SG_BLENDFACTOR_SRC_ALPHA,.dst_factor_rgb=SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,.src_factor_alpha=SG_BLENDFACTOR_ONE,.dst_factor_alpha=SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA},.label="model nearest palette outline"});
+    models.world_composite_pipeline=sg_make_pipeline(&(sg_pipeline_desc){.shader=models.composite_shader,.sample_count=sapp_sample_count(),
+        .depth={.pixel_format=SG_PIXELFORMAT_DEPTH_STENCIL,.compare=SG_COMPAREFUNC_LESS_EQUAL,.write_enabled=true},
+        .label="world model nearest palette outline depth"});
     for(int ds=0;ds<2;ds++)for(int pixel=0;pixel<2;pixel++)for(int alpha=0;alpha<3;alpha++)models.pipelines[ds][pixel][alpha]=sg_make_pipeline(&(sg_pipeline_desc){
         .shader=pixel?models.pixel_shader:models.shader,.layout.attrs={[ATTR_model_position]={.format=SG_VERTEXFORMAT_FLOAT3},[ATTR_model_normal]={.format=SG_VERTEXFORMAT_FLOAT3},[ATTR_model_texcoord0]={.format=SG_VERTEXFORMAT_FLOAT2},[ATTR_model_color0]={.format=SG_VERTEXFORMAT_FLOAT4}},
         .index_type=SG_INDEXTYPE_UINT32,.cull_mode=ds?SG_CULLMODE_NONE:SG_CULLMODE_BACK,.face_winding=SG_FACEWINDING_CCW,.sample_count=pixel?1:sapp_sample_count(),
@@ -347,6 +353,7 @@ void models_init(JSContext *ctx) {
 }
 void models_shutdown(void) {
     sg_destroy_pipeline(models.composite_pipeline);
+    sg_destroy_pipeline(models.world_composite_pipeline);
     sg_destroy_shader(models.composite_shader);
     sg_destroy_shader(models.pixel_shader);
     sg_destroy_sampler(models.pixel_sampler);
@@ -354,6 +361,7 @@ void models_shutdown(void) {
     sg_destroy_view(models.pixel_attachments.colors[0]); sg_destroy_view(models.pixel_attachments.colors[1]); sg_destroy_view(models.pixel_attachments.depth_stencil);
     sg_destroy_image(models.pixel_color); sg_destroy_image(models.pixel_geometry); sg_destroy_image(models.pixel_depth);
     for(int i=0;i<MODEL_INSTANCES;i++)if(models.instances[i].used){JS_FreeValue(models.ctx,models.instances[i].completion);free(models.instances[i].t);free(models.instances[i].r);free(models.instances[i].s);free(models.instances[i].world);}
+    sg_destroy_view(models.ground_view);sg_destroy_image(models.ground_image);
     for(int i=0;i<MODEL_ASSETS;i++)free_asset(&models.assets[i]);for(int a=0;a<2;a++)for(int b=0;b<2;b++)for(int c=0;c<3;c++)sg_destroy_pipeline(models.pipelines[a][b][c]);sg_destroy_view(models.white_view);sg_destroy_image(models.white_image);sg_destroy_sampler(models.sampler);sg_destroy_shader(models.shader);memset(&models,0,sizeof(models));
 }
 JSValue js_models_load(JSContext *ctx,JSValueConst this_val,int argc,JSValueConst *argv) {
@@ -432,13 +440,25 @@ JSValue js_models_draw(JSContext *ctx,JSValueConst t,int argc,JSValueConst *argv
     return JS_UNDEFINED;
 }
 
-static void render_model(ModelDraw draw, int pixel) {
+static void render_model(ModelDraw draw, int pixel, const hmm_mat4 *crop) {
     int id=draw.id; double x=draw.x,y=draw.y,height=draw.height,scale=draw.scale,rotation=draw.rotation;
     if(!models.instances[id-1].used)return;
     ModelInstance *in=&models.instances[id-1];ModelAsset *a=&models.assets[in->asset];
     float aspect=(float)sapp_width()/(float)sapp_height();hmm_mat4 projection=pixel?HMM_Orthographic(-MODEL_PIXEL_TARGET/2.0f,MODEL_PIXEL_TARGET/2.0f,-MODEL_PIXEL_TARGET/2.0f,MODEL_PIXEL_TARGET/2.0f,-128,128):HMM_Orthographic(-500*aspect,500*aspect,-500,500,-2000,2000);hmm_mat4 camera=mat_mul(HMM_Rotate(models.pitch,HMM_Vec3(1,0,0)),HMM_Rotate(models.yaw,HMM_Vec3(0,1,0)));float anchor_t[3]={(float)x,(float)-y+(float)height,0},identity_r[4]={0,0,0,1},unit_s[3]={1,1,1};hmm_mat4 anchor=trs(anchor_t,identity_r,unit_s);float local_t[3]={0,0,0},rr[4]={0,sinf((float)rotation*.5f),0,cosf((float)rotation*.5f)},ss[3]={(float)scale,(float)scale,(float)scale};hmm_mat4 root=trs(local_t,rr,ss);
+    if(engine_world_enabled()) {
+        engine_world_projection(&projection.Elements[0][0]);
+        if(crop)projection=mat_mul(*crop,projection);
+        camera=HMM_Rotate(90,HMM_Vec3(1,0,0));
+        float world_anchor[3]={(float)x,(float)-y,(float)height};
+        anchor=trs(world_anchor,identity_r,unit_s);
+    }
     for(uint32_t ni=0;ni<a->node_count;ni++){ModelNode *n=&a->nodes[ni];for(uint32_t j=0;j<n->primitive_count;j++){ModelPrimitive *p=&a->primitives[n->primitive_start+j];ModelMaterial *m=&a->materials[p->material<a->material_count?p->material:0];hmm_mat4 model=mat_mul(camera,mat_mul(root,in->world[ni]));hmm_mat4 mvp=mat_mul(projection,mat_mul(anchor,model));model_vs_params_t vs={.mvp=mvp,.model=model};model_fs_params_t fs={{m->factor[0],m->factor[1],m->factor[2],m->factor[3]},{models.light_dir[0],models.light_dir[1],models.light_dir[2],draw.steps},{draw.ambient,m->alpha==MODEL_ALPHA_MASK?(float)1:0,m->cutoff,m->uv_rotation},{m->uv_offset[0],m->uv_offset[1],m->uv_scale[0],m->uv_scale[1]}};
         fs.point_params[0]=(float)draw.light_count;
+        fs.point_params[1]=engine_world_enabled()&&models.ground_texture?1:0;
+        fs.point_params[2]=engine_world_enabled()&&!pixel?1:0;
+        fs.point_params[3]=engine_world_enabled()?1:0;
+        fs.ground_light[0]=(float)x;fs.ground_light[1]=(float)y;
+        fs.ground_light[2]=1000*aspect*engine_world_light_extent();fs.ground_light[3]=1000*engine_world_light_extent();
         for(int light=0;light<draw.light_count;light++) {
             float *l=draw.lights[light];
             hmm_vec4 position=HMM_MultiplyMat4ByVec4(camera,HMM_Vec4(l[0],l[1],l[2],1));
@@ -449,7 +469,7 @@ static void render_model(ModelDraw draw, int pixel) {
             for(int channel=0;channel<3;channel++)fs.point_color_inner[light][channel]=l[5+channel]*l[8];
             fs.point_color_inner[light][3]=l[3];
         }
-        sg_apply_pipeline(models.pipelines[m->double_sided?1:0][pixel][m->alpha]);sg_bindings bind={0};bind.vertex_buffers[0]=p->vertices;bind.index_buffer=p->indices;bind.views[VIEW_base_color_tex]=m->view.id?m->view:models.white_view;bind.samplers[SMP_base_color_smp]=models.sampler;sg_apply_bindings(&bind);sg_apply_uniforms(UB_model_vs_params,&SG_RANGE(vs));sg_apply_uniforms(UB_model_fs_params,&SG_RANGE(fs));sg_draw(0,(int)p->index_count,1);}}
+        sg_apply_pipeline(models.pipelines[m->double_sided?1:0][pixel][m->alpha]);sg_bindings bind={0};bind.vertex_buffers[0]=p->vertices;bind.index_buffer=p->indices;bind.views[VIEW_base_color_tex]=m->view.id?m->view:models.white_view;bind.samplers[SMP_base_color_smp]=models.sampler;bind.views[VIEW_ground_darkness]=models.ground_view.id?models.ground_view:models.white_view;sg_apply_bindings(&bind);sg_apply_uniforms(UB_model_vs_params,&SG_RANGE(vs));sg_apply_uniforms(UB_model_fs_params,&SG_RANGE(fs));sg_draw(0,(int)p->index_count,1);}}
 }
 
 JSValue js_models_set_last_layer(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv) {
@@ -467,30 +487,63 @@ static void begin_model_composite(void) {
     sg_begin_pass(&(sg_pass){.swapchain=sglue_swapchain(),.action={
         .colors[0].load_action=SG_LOADACTION_LOAD,
         // Props are painter-sorted in 2D; only their own triangles share depth.
-        .depth={.load_action=SG_LOADACTION_CLEAR,.clear_value=1.0f},
+        .depth={.load_action=engine_world_enabled()?SG_LOADACTION_LOAD:SG_LOADACTION_CLEAR,.clear_value=1.0f},
         .stencil.load_action=SG_LOADACTION_LOAD}});
 }
 
 void models_render(void) {
+#if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
+    int width=0,height=0;
+    uint32_t texture=engine_world_enabled()?engine_world_light_texture(&width,&height):0;
+    if(texture!=models.ground_texture || width!=models.ground_width || height!=models.ground_height) {
+        sg_destroy_view(models.ground_view);sg_destroy_image(models.ground_image);
+        models.ground_view=(sg_view){0};models.ground_image=(sg_image){0};
+        models.ground_texture=texture;models.ground_width=width;models.ground_height=height;
+        if(texture) {
+            models.ground_image=sg_make_image(&(sg_image_desc){.width=width,.height=height,
+                .pixel_format=SG_PIXELFORMAT_RGBA8,.gl_textures[0]=texture,.label="world ground lighting"});
+            models.ground_view=sg_make_view(&(sg_view_desc){.texture.image=models.ground_image});
+        }
+    }
+#endif
     for(int i=0;i<draw_count;i++) {
         ModelDraw draw=draw_queue[i];
-        if(draw.sprite_layer>=2) {
+        if(draw.sprite_layer>=2 && !engine_world_enabled()) {
             begin_model_composite();
             sgl_draw_layer(draw.sprite_layer);
             sg_end_pass();
         }
         if(!draw.pixel_enabled || draw.pixel_size==0) {
             begin_model_composite();
-            render_model(draw,0);
+            render_model(draw,0,NULL);
             sg_end_pass();
             continue;
         }
         // One source texel equals one source sprite pixel. Room chests supply
         // the snapped world's scale, not the model's size or display DPI.
         double zoom=draw.pixel_size*sapp_height()/1000.0;
+        double center_x=sapp_width()*0.5+draw.x*sapp_height()/1000.0;
+        double center_y=sapp_height()*0.5+draw.y*sapp_height()/1000.0;
+        hmm_mat4 crop={0};
+        const int world=engine_world_enabled();
+        if(world) {
+            hmm_mat4 projection;engine_world_projection(&projection.Elements[0][0]);
+            hmm_vec4 center=HMM_MultiplyMat4ByVec4(projection,HMM_Vec4(draw.x,-draw.y,0,1));
+            if(center.W<=0.01f)continue;
+            zoom/=center.W;
+            center_x=(center.X/center.W+1)*sapp_width()*0.5;
+            center_y=(1-center.Y/center.W)*sapp_height()*0.5;
+        }
         int extent=(int)fmax(1.0,round(MODEL_PIXEL_TARGET*zoom));
-        int left=(int)round(sapp_width()*0.5+draw.x*sapp_height()/1000.0-extent*0.5);
-        int top=(int)round(sapp_height()*0.5+draw.y*sapp_height()/1000.0-extent*0.5);
+        int left=(int)round(center_x-extent*0.5),top=(int)round(center_y-extent*0.5);
+        if(world) {
+            crop.Elements[0][0]=(float)sapp_width()/extent;
+            crop.Elements[1][1]=(float)sapp_height()/extent;
+            crop.Elements[2][2]=crop.Elements[3][3]=1;
+            crop.Elements[3][0]=(float)(sapp_width()-2*left-extent)/extent;
+            crop.Elements[3][1]=(float)(2*top+extent-sapp_height())/extent;
+            draw.pixel_style.options[2]=1; // composite stored world depth
+        }
         if(left>=sapp_width()||top>=sapp_height()||left+extent<=0||top+extent<=0)continue;
         int factor=draw.pixel_style.options[0]>1.0f?2:1;
         if(models.pixel_target_factor!=factor)resize_pixel_targets(factor);
@@ -499,26 +552,31 @@ void models_render(void) {
             .colors[1]={.load_action=SG_LOADACTION_CLEAR,.store_action=SG_STOREACTION_STORE,.clear_value={0,0,0,0}},
             .depth={.load_action=SG_LOADACTION_CLEAR,.clear_value=1.0f}},.label="128x128 model pixels"});
         ModelDraw local=draw;
-        local.x=local.y=0;
-        local.scale/=draw.pixel_size;
-        local.height/=draw.pixel_size;
-        for(int light=0;light<local.light_count;light++)
-            for(int component=0;component<5;component++)local.lights[light][component]/=(float)draw.pixel_size;
-        render_model(local,1);
+        if(!world) {
+            local.x=local.y=0;
+            local.scale/=draw.pixel_size;
+            local.height/=draw.pixel_size;
+            for(int light=0;light<local.light_count;light++)
+                for(int component=0;component<5;component++)local.lights[light][component]/=(float)draw.pixel_size;
+        }
+        // Crop the shared projection, not the mesh: source-pixel rasterization
+        // preserves perspective orientation and actual per-surface scene depth.
+        render_model(local,1,world?&crop:NULL);
         sg_end_pass();
 
         begin_model_composite();
         sg_apply_viewport(left,top,extent,extent,true);
-        sg_apply_pipeline(models.composite_pipeline);
+        sg_apply_pipeline(world?models.world_composite_pipeline:models.composite_pipeline);
         sg_bindings bindings={0};
         bindings.views[VIEW_model_color]=models.pixel_color_view;
+        bindings.views[VIEW_model_geometry]=models.pixel_geometry_view;
         bindings.samplers[SMP_pixel_sampler]=models.pixel_sampler;
         sg_apply_bindings(&bindings);
         sg_apply_uniforms(UB_pixel_style_params,&SG_RANGE(draw.pixel_style));
         sg_draw(0,3,1);
         sg_end_pass();
     }
-    if(world_sprite_last_layer>=2) {
+    if(world_sprite_last_layer>=2 && !engine_world_enabled()) {
         begin_model_composite();
         sgl_draw_layer(world_sprite_last_layer);
         sg_end_pass();
