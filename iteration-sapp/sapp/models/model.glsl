@@ -195,6 +195,14 @@ void main() {
     vec3 alternate = base.rgb;
     float best = 1e10;
     float second = 1e10;
+    // World lighting can reach zero even when the artist palette has no black.
+    // Include black in the nearest-colour search so quantization cannot lift
+    // fully shadowed surfaces back to a glowing minimum palette colour.
+    // Preserve Classic's palette raster; its darkness is composited afterward.
+    if (options.z > 0.5 && style.x > 0.0) {
+        chosen = vec3(0.0);
+        best = dot(base.rgb * base.rgb, vec3(0.299, 0.587, 0.114));
+    }
     for (int i = 0; i < 64; i++) {
         if (float(i) >= style.x) break;
         vec3 delta = base.rgb - palette[i].rgb;

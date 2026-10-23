@@ -38,6 +38,7 @@
 #include "timers.h"
 #include "hot_reload.h"
 #include "asset_fetch.h"
+#include "startup_trace.h"
 #include "runtime_vm.h"
 
 #if defined(__ANDROID__)
@@ -93,6 +94,7 @@ typedef struct
 static void fetch_callback(const sfetch_response_t *);
 static void fetch_javascript_callback(const sfetch_response_t *);
 static void cleanup(void);
+static void asset_completion_jobs(void);
 
 static JSValue js_print(JSContext *ctx, JSValueConst this_val,
                         int argc, JSValueConst *argv)
@@ -134,6 +136,7 @@ static int js_module_init(JSContext *ctx, JSModuleDef *m)
 
 static void init(void)
 {
+  startup_trace_init();
   SOKOL_LOG("HELLO FROM ITERATION");
 
 #if defined(__ANDROID__)
@@ -156,6 +159,7 @@ static void init(void)
       .max_requests = 256,
       .num_channels = 256,
       .num_lanes = 256});
+  asset_fetch_init(asset_completion_jobs);
 
   /* setup sokol-gl */
 
@@ -419,6 +423,12 @@ static void js_execute_jobs(JSContext *ctx)
   }
 }
 
+// iOS completion delivery runs on the main queue between frame callbacks.
+// Drain await continuations immediately, but never render or reset the VM here.
+static void asset_completion_jobs(void) {
+  if (state.ctx && !state.reload_waiting) js_execute_jobs(state.ctx);
+}
+
 /* The frame-function is fairly boring, note that no special handling is
    needed for the case where the texture isn't loaded yet.
    Also note the sfetch_dowork() function, this is usually called once a
@@ -427,14 +437,26 @@ static void js_execute_jobs(JSContext *ctx)
 static void frame(void)
 {
   if(state.reload_waiting)return;
+  startup_trace_begin(sapp_frame_count());
   sfetch_dowork();
   // js_std_loop(state.ctx);
   js_execute_jobs(state.ctx);
+  // Await continuations can enqueue the next asset after the first fetch pump.
+  // Dispatch it this frame instead of adding a full frame of idle latency to
+  // every sequential load. One bounded, non-blocking pass; never spin waiting
+  // for I/O. Deliver any callbacks' promise jobs before rendering or reload.
+  if(asset_fetch_busy()) {
+    sfetch_dowork();
+    js_execute_jobs(state.ctx);
+  }
   js_update_timers(state.ctx);
+  startup_trace_mark(ST_FETCH_JOBS);
   engine_frame();
   // No frame callbacks, asset callbacks or jobs may retain the old context
   // across this boundary. The transport itself lives outside the VM.
   int reload=asset_fetch_busy()?0:hot_reload_tick(state.ctx);
+  startup_trace_mark(ST_RELOAD);
+  startup_trace_end();
   if(reload==1) {
     cleanup();
     memset(&state,0,sizeof(state));
@@ -485,6 +507,7 @@ static void event(const sapp_event *e)
 
 static void cleanup(void)
 {
+  asset_fetch_shutdown();
   engine_shutdown();
   hot_reload_forget(state.ctx);
   js_std_free_handlers(JS_GetRuntime(state.ctx));

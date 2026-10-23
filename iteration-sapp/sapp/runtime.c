@@ -10,6 +10,7 @@
 #include "util/fileutil.h"
 #include "hot_reload.h"
 #include "asset_fetch.h"
+#include "startup_trace.h"
 
 #include "dbgui/dbgui.h"
 
@@ -2981,6 +2982,7 @@ void engine_frame()
   runtime_capture_frame_time();
   state.vg=screen_world_vg;screen_ui_started=0;
   storage_poll();
+  startup_trace_mark(ST_STORAGE);
   float width = sapp_width();
   float height = sapp_height();
   float ratio = width / height;
@@ -3008,10 +3010,12 @@ void engine_frame()
 #if defined(SOKOL_GLES3) && !defined(SOKOL_METAL)
   particle_mask_reset();
 #endif
+  startup_trace_mark(ST_SETUP);
   if (JS_IsFunction(state.ctx, engine_get_frame_callback()))
   {
     JS_Call(state.ctx, engine_get_frame_callback(), JS_UNDEFINED, 0, NULL);
   }
+  startup_trace_mark(ST_JS);
 
   particle_system_update_all((float)sapp_frame_duration());
   float particle_left=get_translated_x(-500),particle_right=get_translated_x(500);
@@ -3023,6 +3027,7 @@ void engine_frame()
     particle_right*particle_extent+particle_pad_x,particle_bottom*particle_extent+particle_pad_y);
   particle_system_render_all(engine_draw_particle);
   particle_system_render_world(engine_draw_world_particle);
+  startup_trace_mark(ST_PARTICLES);
   gpu_profile_begin(1);
   sgl_draw_layer(0);
   sg_end_pass();
@@ -3038,6 +3043,7 @@ void engine_frame()
   gpu_profile_end();
   // NanoVG uses raw GL and must not inherit model sampler/depth state.
   sg_reset_state_cache();
+  startup_trace_mark(ST_FLAT);
 
   if (state.vg != NULL)
   {
@@ -3051,19 +3057,24 @@ void engine_frame()
   if(!engine_world_enabled())particle_mask_present();
   gpu_profile_end();
 #endif
+  startup_trace_mark(ST_VECTOR);
   if(engine_world_enabled()) {
     gpu_profile_begin(1);
     world_scene_present(0);
+    startup_trace_mark(ST_WORLD);
     models_render();
+    startup_trace_mark(ST_MODELS);
     gpu_profile_end();
     gpu_profile_begin(3);
     world_scene_present(1);
     world_scene_present(2); // Explicit foreground particles: after world depth, before UI.
     gpu_profile_end();
   }
+  startup_trace_mark(ST_ALPHA);
   gpu_profile_begin(4);
   screen_overlay_present();
   gpu_profile_end();
+  startup_trace_mark(ST_OVERLAY);
   gpu_profile_begin(5);
   if(screen_ui_started){nvgEndFrame(screen_ui_vg);sg_reset_state_cache();}
   state.vg=screen_world_vg;
@@ -3076,7 +3087,9 @@ void engine_frame()
   sg_end_pass();
   gpu_profile_end();
   gpu_profile_frame_end();
+  startup_trace_mark(ST_UI);
   sg_commit();
+  startup_trace_mark(ST_COMMIT);
 }
 
 static int js_engine_init(JSContext *ctx, JSModuleDef *m)

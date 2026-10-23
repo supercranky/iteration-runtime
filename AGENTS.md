@@ -157,6 +157,12 @@ build/test; web artifact updates cannot install native code through iOS hot relo
 texture per fragment; do not reintroduce per-system fullscreen particle targets.
 It flushes after the main NanoVG frame and before reserved UI sprites. Preserve
 premultiplied alpha, physical framebuffer coordinates and GL/Sokol state cleanup.
+Particle `render.foreground` opts out of world depth in a separate pass after
+world geometry but before vignette/screen UI; it must retain direct-light masking.
+The draw callback's mask integer uses bit 0 for direct light and bit 1 for
+foreground (do not treat either bit alone as a request for masking). Classic
+unmasked foreground particles use sprite layer 1. Ner
+`verify-particle-foreground.mjs` checks world occlusion and UI ordering at DPR2.
 Native culling is render-only: zero-scale local systems skip traversal, and other
 systems open a batch lazily only for visible particles. Simulation stays active.
 `Runtime.drawLightMaskedSprite` also submits centered atlas quads to this pass,
@@ -297,6 +303,44 @@ runtime/NanoVG GL calls plus public Sokol draw counters without double-counting.
 Per-engine work counters describe submissions, not draws or GPU time. Ner's
 `test-gpu-timer-pool.mjs` tests the real EM_JS lifecycle with a simulated driver;
 `verify-gpu-profile.mjs` verifies browser draw accounting and opt-in lifecycle.
+
+## iOS completion-driven asset loading
+
+`asset_fetch_ios.m` implements bounded (256), whole-file buffered reads on a
+serial dispatch worker. It uses the public `sfetch_request_t`/response layout,
+but accepted handles are not Sokol handles and cannot be passed to `sfetch_*`
+handle functions. Web/other platforms retain Sokol fetch. All current runtime
+asset callers provide buffers and do not stream or operate on returned handles.
+
+Delivery and promise-job draining run on the main queue between frame callbacks;
+only file I/O runs on the worker. Restore the submitting EAGL context around
+callbacks/uploads. Never render or reset the VM from the completion hook. Pending
+requests participate in `asset_fetch_busy()` so hot reload still resets only at
+a drained frame boundary. Call `asset_fetch_shutdown()` before engine/VM teardown:
+it waits for worker writes, delivers cancellation callbacks without draining JS
+jobs, and makes queued old-session delivery blocks inert. Preserve copied paths,
+user data, external-buffer lifetime and error callbacks.
+
+Native lifecycle verification (macOS Foundation exercises the same queue code;
+EAGL context switching additionally requires an iPhone build):
+
+```sh
+clang -fobjc-arc -g -fsanitize=address,undefined -DITERATION_ASSET_FETCH_IOS=1 \
+  -Isokol -Iiteration-sapp/sapp tests/asset-fetch-completion.m \
+  iteration-sapp/sapp/asset_fetch.c iteration-sapp/sapp/asset_fetch_ios.m iteration-sapp/sapp/startup_trace.c \
+  -framework Foundation -o /tmp/iteration-fetch-completion-test
+/tmp/iteration-fetch-completion-test
+```
+
+## Opt-in native startup phase capture
+
+Set launch environment `ITERATION_STARTUP_TRACE=1` to record bounded CPU wall
+timings in `startup_trace.c` for up to 1024 frames/six seconds. Normal launches
+leave it disabled. Capture includes frame phases and time outside the Sokol
+frame callback; async asset delivery is attributed separately. It never waits
+for GPU results. Logging occurs only after capture ends. A long outside interval
+can include GLK presentation, scheduling or other main-thread work, not just GPU
+execution. `tests/startup-trace.c` checks bounded/disabled paths under ASAN/UBSAN.
 
 ## Animation frame clock
 
